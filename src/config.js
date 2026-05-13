@@ -1,6 +1,7 @@
 window.BRAINROT_CONFIG = {
-  storageKey: 'brainrot_h5_mvp_save_v2_brainrot_roles',
+  storageKey: 'brainrot_h5_mvp_save_v3_empty_slots',
   initialCoins: 25,
+  defaultStarterSlotEnabled: false,
   starterTemplateId: 'br_01',
   starterSlotIndex: 0,
   maxSlots: 10,

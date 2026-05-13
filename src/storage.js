@@ -27,8 +27,11 @@
       coins: 0
     }));
 
+    // 默认清档后不再把初始脑腐塞进脑腐槽。
+    // 需要恢复“初始白送”时，只要在 config.js 里把 defaultStarterSlotEnabled 改成 true。
     const starterIndex = Number.isFinite(cfg.starterSlotIndex) ? cfg.starterSlotIndex : 0;
-    if (cfg.starterTemplateId && slots[starterIndex]) {
+    const shouldSeedStarter = cfg.defaultStarterSlotEnabled === true;
+    if (shouldSeedStarter && cfg.starterTemplateId && slots[starterIndex]) {
       slots[starterIndex].templateId = cfg.starterTemplateId;
     }
 
