@@ -15,7 +15,7 @@
   const DPR_LIMIT = 2;
   const keyState = new Set();
   const CAMERA_LERP = 9.5;
-  const FIGMA_LAYOUT_VERSION = 'figma_node_4_9_v1';
+  const FIGMA_LAYOUT_VERSION = 'figma_node_4_9_v2';
   const TILE_IMG_PATH = 'assets/images/RobloxOverlayImg.png';
 
   const FIGMA = {
@@ -299,14 +299,34 @@
 
   function rebuildConveyorPositions() {
     if (!layout || !game.conveyorItems.length) return;
+    for (const item of game.conveyorItems) positionConveyorItem(item);
+  }
+
+  function positionConveyorItem(item) {
     const conv = layout.conveyor;
-    for (const item of game.conveyorItems) {
-      if (!Number.isFinite(item.yRatio)) item.yRatio = 0.08;
-      item.x = conv.x + conv.w / 2;
-      item.y = conv.y + item.yRatio * conv.h;
-      item.hitSize = 150;
-      item.rect = { x: item.x - 85, y: item.y - 139.5, w: 170, h: 279 };
+    const y = conv.y + item.yRatio * conv.h;
+    const anchors = layout.conveyorSlots;
+    let x = anchors[0].x;
+    const centerY = y;
+    if (centerY <= anchors[0].cy) {
+      x = anchors[0].x;
+    } else if (centerY >= anchors[anchors.length - 1].cy) {
+      x = anchors[anchors.length - 1].x;
+    } else {
+      for (let i = 0; i < anchors.length - 1; i += 1) {
+        const a = anchors[i];
+        const b = anchors[i + 1];
+        if (centerY >= a.cy && centerY <= b.cy) {
+          const t = (centerY - a.cy) / Math.max(1, b.cy - a.cy);
+          x = lerp(a.x, b.x, t);
+          break;
+        }
+      }
     }
+    item.x = x + 85;
+    item.y = y;
+    item.hitSize = 170;
+    item.rect = { x, y: y - 139.5, w: 170, h: 279 };
   }
 
   function takeNextTemplateId() {
@@ -437,9 +457,7 @@
         item.templateId = takeNextTemplateId();
         item.id = 'cv_' + performance.now() + '_' + Math.random().toString(16).slice(2);
       }
-      item.x = conv.x + conv.w / 2;
-      item.y = conv.y + item.yRatio * conv.h;
-      item.rect = { x: item.x - 85, y: item.y - 139.5, w: 170, h: 279 };
+      positionConveyorItem(item);
     }
   }
 
@@ -512,36 +530,27 @@
 
   function drawWorldBackground() {
     const map = layout.map;
-    drawTiledRect(0, 0, map.w, map.h, '#63c849', 'rgba(118,214,87,0.35)', 0.48);
+    drawTiledRect(0, 0, map.w, map.h, '#6bcc3d', 'rgba(107,204,61,0.03)', 0.90);
   }
 
 
   function drawHomeBase() {
     const room = layout.room;
-    roundRect(room.x, room.y, room.w, room.h, 0, '#4b4f47', null, 0);
-    drawTiledRect(layout.floor.x, layout.floor.y, layout.floor.w, layout.floor.h, '#858a89', 'rgba(75,78,76,0.34)', 0.34);
-    drawTiledRect(layout.roomCorridor.x, layout.roomCorridor.y, layout.roomCorridor.w, layout.roomCorridor.h, '#858a89', 'rgba(75,78,76,0.34)', 0.34);
-
+    // Figma 房间墙体底图：只画房间边界本体，不再自创绿色粗墙或网格线。
     ctx.save();
-    ctx.globalAlpha = 0.26;
-    ctx.strokeStyle = '#23272a';
-    ctx.lineWidth = 2;
-    for (let x = layout.floor.x; x <= layout.floor.x + layout.floor.w; x += 64) {
-      ctx.beginPath(); ctx.moveTo(x, layout.floor.y); ctx.lineTo(x, layout.floor.y + layout.floor.h); ctx.stroke();
-    }
-    for (let y = layout.floor.y; y <= layout.floor.y + layout.floor.h; y += 64) {
-      ctx.beginPath(); ctx.moveTo(layout.floor.x, y); ctx.lineTo(layout.floor.x + layout.floor.w, y); ctx.stroke();
-    }
+    ctx.fillStyle = '#4b514c';
+    ctx.fillRect(room.x, room.y, room.w, room.h);
     ctx.restore();
 
-    for (const wall of layout.walls) {
-      roundRect(wall.x, wall.y, wall.w, wall.h, 0, '#343835', '#1d211f', 2);
-      ctx.save();
-      ctx.globalAlpha = 0.22;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(wall.x + 2, wall.y + 2, Math.max(0, wall.w - 4), Math.min(10, Math.max(0, wall.h - 4)));
-      ctx.restore();
-    }
+    // Figma: Shop floor / 灰色商店地面 tile fill - 256px tiled
+    drawTiledRect(layout.floor.x, layout.floor.y, layout.floor.w, layout.floor.h, '#787d78', 'rgba(120,125,120,0.05)', 0.90);
+    drawTiledRect(layout.roomCorridor.x, layout.roomCorridor.y, layout.roomCorridor.w, layout.roomCorridor.h, '#787d78', 'rgba(120,125,120,0.05)', 0.90);
+
+    // 仅用 Figma 房间墙体对应的边界区域作为视觉，不增加额外装饰元素。
+    ctx.save();
+    ctx.fillStyle = '#4b514c';
+    for (const wall of layout.walls) ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+    ctx.restore();
   }
 
 
@@ -549,18 +558,16 @@
     for (let i = 0; i < layout.slots.length; i += 1) {
       const rect = layout.slots[i];
       const slot = game.slots[i];
-      drawBrainrotSlot(rect, slot.reserved);
+      drawBrainrotSlot(rect, slot.reserved, slot.coins);
       if (slot.templateId) {
-        drawShopItemCard(getTemplate(slot.templateId), rect.itemX, rect.itemY, rect.itemW, rect.itemH, {
+        const template = getTemplate(slot.templateId);
+        drawShopItemCard(template, rect.itemX, rect.itemY, rect.itemW, rect.itemH, {
           mode: 'home',
-          price: Math.max(0, Math.floor(slot.coins)),
+          price: template.price,
           dim: false
         });
       } else if (slot.reserved) {
         drawReservedSlot(rect);
-      }
-      if (slot.coins > 0.5) {
-        drawFigmaCoinAmount(rect.cx, rect.y + rect.h - 4, money(slot.coins));
       }
     }
   }
@@ -568,40 +575,34 @@
 
   function drawMidArea() {
     const m = layout.mid;
-    drawTiledRect(m.x, m.y, m.w, m.h, '#b8ff8a', 'rgba(97,224,79,0.26)', 0.26);
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.52)';
-    ctx.lineWidth = 3;
-    ctx.setLineDash([16, 10]);
-    ctx.strokeRect(m.x + 12, m.y + 12, m.w - 24, m.h - 24);
-    ctx.restore();
+    drawTiledRect(m.x, m.y, m.w, m.h, '#b8ff80', 'rgba(184,255,128,0.10)', 0.90);
   }
 
 
   function drawConveyor() {
     const conv = layout.conveyor;
     ctx.save();
-    ctx.fillStyle = '#4a4f43';
+    ctx.fillStyle = '#ff809f';
     ctx.fillRect(conv.x, conv.y, conv.w, conv.h);
-    ctx.globalAlpha = 0.16;
-    ctx.fillStyle = '#000000';
-    for (let y = conv.y; y < conv.y + conv.h; y += 54) ctx.fillRect(conv.x, y, conv.w, 2);
     ctx.restore();
 
     const sorted = [...game.conveyorItems].sort((a, b) => a.y - b.y);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(conv.x, conv.y, conv.w, conv.h);
+    ctx.clip();
     for (const item of sorted) {
       if (!item.rect) continue;
       if (item.rect.y > conv.y + conv.h || item.rect.y + item.rect.h < conv.y) continue;
-      if (item.empty || !item.templateId) {
-        drawConveyorEmpty(item.rect);
-        continue;
-      }
-      drawShopItemCard(getTemplate(item.templateId), item.rect.x, item.rect.y, item.rect.w, item.rect.h, {
+      if (item.empty || !item.templateId) continue; // 空位只露出传送带背景，不画占位卡片。
+      const template = getTemplate(item.templateId);
+      drawShopItemCard(template, item.rect.x, item.rect.y, item.rect.w, item.rect.h, {
         mode: 'conveyor',
-        price: getTemplate(item.templateId).price,
+        price: template.price,
         dim: false
       });
     }
+    ctx.restore();
   }
 
 
@@ -705,21 +706,11 @@
     ctx.rect(x, y, w, h);
     ctx.clip();
     if (tileImageReady) {
-      ctx.globalAlpha = imageAlpha == null ? 0.45 : imageAlpha;
+      ctx.globalAlpha = imageAlpha == null ? 0.90 : imageAlpha;
       for (let tx = x; tx < x + w; tx += 256) {
         for (let ty = y; ty < y + h; ty += 256) {
           ctx.drawImage(tileImage, tx, ty, 256, 256);
         }
-      }
-    } else {
-      ctx.globalAlpha = 0.18;
-      ctx.strokeStyle = '#111111';
-      ctx.lineWidth = 2;
-      for (let tx = x; tx < x + w; tx += 32) {
-        ctx.beginPath(); ctx.moveTo(tx, y); ctx.lineTo(tx, y + h); ctx.stroke();
-      }
-      for (let ty = y; ty < y + h; ty += 32) {
-        ctx.beginPath(); ctx.moveTo(x, ty); ctx.lineTo(x + w, ty); ctx.stroke();
       }
     }
     if (tintColor) {
@@ -730,13 +721,17 @@
     ctx.restore();
   }
 
-  function drawBrainrotSlot(r, reserved) {
+  function drawBrainrotSlot(r, reserved, coins) {
     ctx.save();
-    ctx.globalAlpha = reserved ? 0.76 : 0.52;
-    roundRect(r.x, r.y, r.w, r.h, 22, reserved ? 'rgba(80,88,82,0.68)' : 'rgba(70,75,70,0.42)', 'rgba(30,34,30,0.36)', 2);
-    ctx.globalAlpha = 0.26;
-    roundRect(r.x + 12, r.y + 18, r.w - 24, r.h - 38, 18, 'rgba(170,255,150,0.20)', null, 0);
+    const cardX = r.x + r.w * 0.0909;
+    const cardY = r.y;
+    const cardW = r.w * (1 - 0.0909 - 0.0839);
+    const cardH = r.h * (1 - 0.2761);
+    ctx.globalAlpha = reserved ? 0.78 : 1;
+    roundRect(cardX, cardY, cardW, cardH, 24, 'rgba(107,255,89,0.95)', null, 0);
     ctx.restore();
+    const label = coins > 0.5 ? ('$' + money(coins)) : '$价格';
+    drawFigmaText(label, r.x + r.w / 2, r.y + r.h - 8, 28, '#8fff59', 'center', '700');
   }
 
   function drawReservedSlot(r) {
@@ -748,35 +743,25 @@
   }
 
   function drawShopItemCard(template, x, y, w, h, options) {
-    const mode = options && options.mode;
-    const displayPrice = options && options.price;
-    const cx = x + w / 2;
+    const price = options && Number.isFinite(options.price) ? options.price : template.price;
+    const quality = template.quality || template.rarity || '普通';
     ctx.save();
     ctx.globalAlpha = options && options.dim ? 0.55 : 1;
-    drawText(template.name, cx, y + 28, 18, '#ffffff', 'center', '900', true);
-    drawText('普通', cx, y + 49, 15, '#77ff4f', 'center', '900', true);
-    drawText('$' + money(template.incomePerSecond) + '/s', cx, y + 70, 17, '#fff465', 'center', '900', true);
-    const priceText = mode === 'home' ? ('$' + money(displayPrice || 0)) : ('$' + money(displayPrice || template.price));
-    drawText(priceText, cx, y + 94, 18, mode === 'home' ? '#9beaff' : '#9beaff', 'center', '900', true);
-    roundRect(x + 30, y + 108, 110, 110, 24, '#74ff56', 'rgba(40,120,24,0.38)', 2);
-    ctx.save();
-    ctx.globalAlpha = 0.22;
-    roundRect(x + 40, y + 116, 90, 92, 18, '#ffffff', null, 0);
-    ctx.restore();
-    drawBrainrot(template, cx, y + 163, 46, true);
-    drawText('$' + money(template.price), cx, y + 247, 24, '#a8ff73', 'center', '900', true);
+    // Figma ShopItem: 170×279，文本均为居中阴影文字，不绘制卡片底座。
+    drawFigmaText(template.name, x + 87, y + 20, 20, '#ffffff', 'center', '700');
+    drawFigmaText(quality, x + 85, y + 48, 18, '#99ff40', 'center', '700');
+    drawFigmaText('$' + money(template.incomePerSecond) + '/s', x + 85, y + 76, 18, '#ffe538', 'center', '700');
+    drawFigmaText('$' + money(price), x + 83, y + 109, 18, '#93d2f1', 'center', '700');
+    drawBrainrot(template, x + 51 + 39, y + 146 + 36, 36, true);
     ctx.restore();
   }
 
-  function drawConveyorEmpty(r) {
-    ctx.save();
-    ctx.globalAlpha = 0.22;
-    roundRect(r.x + 22, r.y + 112, r.w - 44, 96, 22, '#111111', 'rgba(255,255,255,0.22)', 2);
-    ctx.restore();
+  function drawConveyorEmpty() {
+    // Figma 修正版：右侧传送带空位不绘制任何占位，只露出传送带背景。
   }
 
   function drawFigmaCoinAmount(x, y, label) {
-    drawText('$' + label, x, y, 24, '#a8ff73', 'center', '900', true);
+    drawFigmaText('$' + label, x, y, 24, '#8fff59', 'center', '700');
   }
 
   function drawFloatingTexts() {
@@ -870,6 +855,18 @@
       ctx.lineWidth = lineWidth || 1;
       ctx.stroke();
     }
+  }
+
+  function drawFigmaText(text, x, y, size, color, align, weight) {
+    ctx.save();
+    ctx.font = `${weight || '700'} ${size}px Arial, Microsoft YaHei, sans-serif`;
+    ctx.textAlign = align || 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = 'rgba(0,0,0,0.90)';
+    ctx.fillText(String(text), x + 2, y + 3);
+    ctx.fillStyle = color || '#fff';
+    ctx.fillText(String(text), x, y);
+    ctx.restore();
   }
 
   function drawText(text, x, y, size, color, align, weight, stroke) {
