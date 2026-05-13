@@ -16,7 +16,7 @@
   const keyState = new Set();
   const CAMERA_LERP = 9.5;
   const WORLD_CAMERA_ZOOM = 0.5;
-  const FIGMA_LAYOUT_VERSION = 'figma_node_4_9_v3';
+  const FIGMA_LAYOUT_VERSION = 'figma_node_4_9_v2';
   const TILE_IMG_PATH = 'assets/images/RobloxOverlayImg.png';
   const SLOT_COLLECT_COOLDOWN_SECONDS = Number.isFinite(cfg.collectCooldownSeconds)
     ? Math.max(0, Number(cfg.collectCooldownSeconds))
@@ -65,6 +65,8 @@
   const PLAYER_WALK_SPEED = 9.5;
   const PLAYER_WALK_SWING = 0.24;
   const PLAYER_WALK_BOB = 4;
+  const PLAYER_SPAWN_HALO_VISIBLE_SECONDS = 3;
+  const PLAYER_SPAWN_HALO_FADE_SECONDS = 0.8;
   const PLAYER_ASSET_PATHS = {
     head: 'assets/images/Player/head.png',
     body: 'assets/images/Player/body.png',
@@ -109,7 +111,16 @@
   const loaded = storage.loadState();
   const game = {
     coins: loaded.coins,
-    player: { x: loaded.player.x, y: loaded.player.y, r: 24, walkTime: 0, isMoving: false, moveX: 0, moveY: 0 },
+    player: {
+      x: loaded.player.x,
+      y: loaded.player.y,
+      r: 24,
+      walkTime: 0,
+      isMoving: false,
+      moveX: 0,
+      moveY: 0,
+      spawnHaloAge: 0
+    },
     camera: { x: 0, y: 0 },
     slots: loaded.slots,
     conveyorItems: [],
@@ -196,8 +207,6 @@
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.imageSmoothingEnabled = false;
-    if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'low';
     computeLayout(w, h);
   }
 
@@ -290,6 +299,7 @@
   function placePlayerAtSpawn() {
     game.player.x = layout.spawn.x;
     game.player.y = layout.spawn.y;
+    game.player.spawnHaloAge = 0;
   }
 
   function isPlayerPositionValid(x, y) {
@@ -486,6 +496,8 @@
   }
 
   function updatePlayer(dt) {
+    game.player.spawnHaloAge = Math.min(PLAYER_SPAWN_HALO_VISIBLE_SECONDS + PLAYER_SPAWN_HALO_FADE_SECONDS + 1, game.player.spawnHaloAge + dt);
+
     let dx = game.joystick.dx;
     let dy = game.joystick.dy;
     if (keyState.has('arrowleft') || keyState.has('a')) dx -= 1;
@@ -639,7 +651,7 @@
 
   function drawWorldBackground() {
     const map = layout.map;
-    drawTiledRect(0, 0, map.w, map.h, '#6bcc3d', 'rgba(0,0,0,0.015)', 0.96);
+    drawTiledRect(0, 0, map.w, map.h, '#6bcc3d', 'rgba(107,204,61,0.03)', 0.90);
   }
 
 
@@ -652,8 +664,8 @@
     ctx.restore();
 
     // Figma: Shop floor / 灰色商店地面 tile fill - 256px tiled
-    drawTiledRect(layout.floor.x, layout.floor.y, layout.floor.w, layout.floor.h, '#787d78', 'rgba(0,0,0,0.02)', 0.98);
-    drawTiledRect(layout.roomCorridor.x, layout.roomCorridor.y, layout.roomCorridor.w, layout.roomCorridor.h, '#787d78', 'rgba(0,0,0,0.02)', 0.98);
+    drawTiledRect(layout.floor.x, layout.floor.y, layout.floor.w, layout.floor.h, '#787d78', 'rgba(120,125,120,0.05)', 0.90);
+    drawTiledRect(layout.roomCorridor.x, layout.roomCorridor.y, layout.roomCorridor.w, layout.roomCorridor.h, '#787d78', 'rgba(120,125,120,0.05)', 0.90);
 
     // 仅用 Figma 房间墙体对应的边界区域作为视觉，不增加额外装饰元素。
     ctx.save();
@@ -684,7 +696,7 @@
 
   function drawMidArea() {
     const m = layout.mid;
-    drawTiledRect(m.x, m.y, m.w, m.h, '#b8ff80', 'rgba(255,255,255,0.05)', 0.72);
+    drawTiledRect(m.x, m.y, m.w, m.h, '#b8ff80', 'rgba(184,255,128,0.10)', 0.90);
     drawFigmaText('收集区域', m.x + m.w / 2, m.y + m.h / 2 + 16, 40, '#ffffff', 'center', '700');
   }
 
@@ -737,6 +749,14 @@
   }
 
 
+  function getPlayerSpawnHaloAlpha(age) {
+    const safeAge = Math.max(0, Number(age) || 0);
+    if (safeAge <= PLAYER_SPAWN_HALO_VISIBLE_SECONDS) return 1;
+    const fadeT = (safeAge - PLAYER_SPAWN_HALO_VISIBLE_SECONDS) / Math.max(0.001, PLAYER_SPAWN_HALO_FADE_SECONDS);
+    return clamp(1 - fadeT, 0, 1);
+  }
+
+
   function drawPlayer() {
     const p = game.player;
     const bodyImg = playerSprites.body;
@@ -771,17 +791,21 @@
     const rightHipX = p.x + bodyW * 0.22;
     const hipY = bodyBottom - scale * 4;
 
-    ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.globalAlpha = 0.38;
-    ctx.fillStyle = '#8fd8ff';
-    ctx.beginPath();
-    ctx.arc(0, 0, 78, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#5db8e8';
-    ctx.lineWidth = 8;
-    ctx.stroke();
-    ctx.restore();
+    const haloAlpha = getPlayerSpawnHaloAlpha(p.spawnHaloAge);
+    if (haloAlpha > 0.001) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.globalAlpha = 0.38 * haloAlpha;
+      ctx.fillStyle = '#8fd8ff';
+      ctx.beginPath();
+      ctx.arc(0, 0, 78, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.92 * haloAlpha;
+      ctx.strokeStyle = '#5db8e8';
+      ctx.lineWidth = 8;
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // 绘制顺序：腿和手臂在后，身体和头在前。所有部件使用同一个 scale，保持资源原比例。
     drawSpritePart(legImg, leftHipX, hipY, legW, legH, 0.5, 0.04, swing, '#8ee637');
@@ -858,7 +882,6 @@
 
 
   function drawTiledRect(x, y, w, h, baseColor, tintColor, imageAlpha) {
-    const tileSize = 256;
     ctx.save();
     ctx.fillStyle = baseColor;
     ctx.fillRect(x, y, w, h);
@@ -866,16 +889,12 @@
     ctx.rect(x, y, w, h);
     ctx.clip();
     if (tileImageReady) {
-      ctx.imageSmoothingEnabled = false;
-      if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'low';
-      ctx.globalAlpha = imageAlpha == null ? 0.92 : imageAlpha;
-      ctx.globalCompositeOperation = 'multiply';
-      for (let tx = x; tx < x + w; tx += tileSize) {
-        for (let ty = y; ty < y + h; ty += tileSize) {
-          ctx.drawImage(tileImage, tx, ty, tileSize, tileSize);
+      ctx.globalAlpha = imageAlpha == null ? 0.90 : imageAlpha;
+      for (let tx = x; tx < x + w; tx += 256) {
+        for (let ty = y; ty < y + h; ty += 256) {
+          ctx.drawImage(tileImage, tx, ty, 256, 256);
         }
       }
-      ctx.globalCompositeOperation = 'source-over';
     }
     if (tintColor) {
       ctx.globalAlpha = 1;
