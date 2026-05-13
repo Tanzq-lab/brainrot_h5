@@ -765,7 +765,7 @@
     drawSpriteRect(bodyImg, bodyX, bodyY, bodyW, bodyH, '#218cff');
     drawSpriteRect(headImg, headX, headY, headW, headH, '#ffeb25');
 
-    drawText('Wickfin', p.x, headY - 12, 22, '#ffe85f', 'center', '900', true);
+    drawText('Noob', p.x, headY - 12, 22, '#ffe85f', 'center', '900', true);
   }
 
   function getSpriteWidth(img, fallback) {
