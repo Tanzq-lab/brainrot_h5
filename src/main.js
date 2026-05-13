@@ -16,7 +16,7 @@
   const keyState = new Set();
   const CAMERA_LERP = 9.5;
   const WORLD_CAMERA_ZOOM = 0.5;
-  const FIGMA_LAYOUT_VERSION = 'figma_node_4_9_v2';
+  const FIGMA_LAYOUT_VERSION = 'figma_node_4_9_v3';
   const TILE_IMG_PATH = 'assets/images/RobloxOverlayImg.png';
   const SLOT_COLLECT_COOLDOWN_SECONDS = Number.isFinite(cfg.collectCooldownSeconds)
     ? Math.max(0, Number(cfg.collectCooldownSeconds))
@@ -196,6 +196,8 @@
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'low';
     computeLayout(w, h);
   }
 
@@ -637,7 +639,7 @@
 
   function drawWorldBackground() {
     const map = layout.map;
-    drawTiledRect(0, 0, map.w, map.h, '#6bcc3d', 'rgba(107,204,61,0.03)', 0.90);
+    drawTiledRect(0, 0, map.w, map.h, '#6bcc3d', 'rgba(0,0,0,0.015)', 0.96);
   }
 
 
@@ -650,8 +652,8 @@
     ctx.restore();
 
     // Figma: Shop floor / 灰色商店地面 tile fill - 256px tiled
-    drawTiledRect(layout.floor.x, layout.floor.y, layout.floor.w, layout.floor.h, '#787d78', 'rgba(120,125,120,0.05)', 0.90);
-    drawTiledRect(layout.roomCorridor.x, layout.roomCorridor.y, layout.roomCorridor.w, layout.roomCorridor.h, '#787d78', 'rgba(120,125,120,0.05)', 0.90);
+    drawTiledRect(layout.floor.x, layout.floor.y, layout.floor.w, layout.floor.h, '#787d78', 'rgba(0,0,0,0.02)', 0.98);
+    drawTiledRect(layout.roomCorridor.x, layout.roomCorridor.y, layout.roomCorridor.w, layout.roomCorridor.h, '#787d78', 'rgba(0,0,0,0.02)', 0.98);
 
     // 仅用 Figma 房间墙体对应的边界区域作为视觉，不增加额外装饰元素。
     ctx.save();
@@ -682,7 +684,7 @@
 
   function drawMidArea() {
     const m = layout.mid;
-    drawTiledRect(m.x, m.y, m.w, m.h, '#b8ff80', 'rgba(184,255,128,0.10)', 0.90);
+    drawTiledRect(m.x, m.y, m.w, m.h, '#b8ff80', 'rgba(255,255,255,0.05)', 0.72);
     drawFigmaText('收集区域', m.x + m.w / 2, m.y + m.h / 2 + 16, 40, '#ffffff', 'center', '700');
   }
 
@@ -856,6 +858,7 @@
 
 
   function drawTiledRect(x, y, w, h, baseColor, tintColor, imageAlpha) {
+    const tileSize = 256;
     ctx.save();
     ctx.fillStyle = baseColor;
     ctx.fillRect(x, y, w, h);
@@ -863,12 +866,16 @@
     ctx.rect(x, y, w, h);
     ctx.clip();
     if (tileImageReady) {
-      ctx.globalAlpha = imageAlpha == null ? 0.90 : imageAlpha;
-      for (let tx = x; tx < x + w; tx += 256) {
-        for (let ty = y; ty < y + h; ty += 256) {
-          ctx.drawImage(tileImage, tx, ty, 256, 256);
+      ctx.imageSmoothingEnabled = false;
+      if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'low';
+      ctx.globalAlpha = imageAlpha == null ? 0.92 : imageAlpha;
+      ctx.globalCompositeOperation = 'multiply';
+      for (let tx = x; tx < x + w; tx += tileSize) {
+        for (let ty = y; ty < y + h; ty += tileSize) {
+          ctx.drawImage(tileImage, tx, ty, tileSize, tileSize);
         }
       }
+      ctx.globalCompositeOperation = 'source-over';
     }
     if (tintColor) {
       ctx.globalAlpha = 1;
