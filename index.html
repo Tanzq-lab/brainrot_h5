@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="screen-orientation" content="landscape" />
+  <title>脑腐传送带 MVP</title>
+  <link rel="stylesheet" href="src/styles.css" />
+</head>
+<body>
+  <div id="game-shell">
+    <canvas id="game"></canvas>
+    <div id="rotate-tip">
+      <div class="rotate-card">
+        <div class="rotate-title">请横屏游玩</div>
+        <div class="rotate-subtitle">本版本是横屏 2D H5 脑腐玩法原型</div>
+      </div>
+    </div>
+    <div id="toast" aria-live="polite"></div>
+    <div id="confirm-modal" class="hidden">
+      <div class="modal-card">
+        <h2>是否删除这个脑腐？</h2>
+        <p id="modal-brainrot-name">删除后不返还购买金币。</p>
+        <p class="modal-note">该格子已产生的金币仍会保留，玩家靠近后可自动领取。</p>
+        <div class="modal-actions">
+          <button id="delete-cancel">取消</button>
+          <button id="delete-confirm">删除</button>
+        </div>
+      </div>
+    </div>
+    <div id="debug-panel" class="hidden"></div>
+  </div>
+  <script src="src/config.js"></script>
+  <script src="src/storage.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>
