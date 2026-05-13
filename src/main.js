@@ -18,6 +18,9 @@
   const WORLD_CAMERA_ZOOM = 0.5;
   const FIGMA_LAYOUT_VERSION = 'figma_node_4_9_v2';
   const TILE_IMG_PATH = 'assets/images/RobloxOverlayImg.png';
+  const SLOT_COLLECT_COOLDOWN_SECONDS = Number.isFinite(cfg.collectCooldownSeconds)
+    ? Math.max(0, Number(cfg.collectCooldownSeconds))
+    : 3;
 
   const FIGMA = {
     world: { w: 2900, h: 1757 },
@@ -178,6 +181,10 @@
 
   function addFloatText(text, x, y, color) {
     game.floatingTexts.push({ text, x, y, color: color || '#fff', life: 0.9, maxLife: 0.9 });
+  }
+
+  function getSlotCollectCooldown(slot) {
+    return Math.max(0, Number(slot && slot.collectCooldown) || 0);
   }
 
   function resize() {
@@ -454,6 +461,7 @@
     if (!slot) return;
     slot.reserved = false;
     slot.templateId = anim.templateId;
+    slot.collectCooldown = 0;
     const rect = layout.slots[anim.slotIndex];
     addFloatText('入库！', rect.cx, rect.cy - 16, '#7effb2');
     saveNow();
@@ -464,6 +472,7 @@
     updateCamera(dt);
     updateConveyor(dt);
     updateProduction(dt);
+    updateCollectionCooldowns(dt);
     updateCollection();
     updateAnimations(dt);
     updateFloatingTexts(dt);
@@ -550,11 +559,25 @@
     }
   }
 
+  function updateCollectionCooldowns(dt) {
+    for (const slot of game.slots) {
+      if (!slot) continue;
+      if (!slot.templateId) {
+        slot.collectCooldown = 0;
+        continue;
+      }
+      if (slot.collectCooldown > 0) {
+        slot.collectCooldown = Math.max(0, slot.collectCooldown - dt);
+      }
+    }
+  }
+
   function updateCollection() {
     let total = 0;
     for (let i = 0; i < game.slots.length; i += 1) {
       const slot = game.slots[i];
-      if (slot.coins <= 0.01) continue;
+      if (!slot || slot.coins <= 0.01) continue;
+      if (slot.templateId && getSlotCollectCooldown(slot) > 0) continue;
       const rect = layout.slots[i];
       const d = Math.hypot(game.player.x - rect.cx, game.player.y - rect.cy);
       if (d <= cfg.collectRadius) {
@@ -563,6 +586,7 @@
           game.coins += gained;
           total += gained;
           addFloatText('+' + money(gained), rect.cx, rect.cy - 24, '#22ff66');
+          if (slot.templateId) slot.collectCooldown = SLOT_COLLECT_COOLDOWN_SECONDS;
         }
         slot.coins = 0;
       }
@@ -641,7 +665,7 @@
     for (let i = 0; i < layout.slots.length; i += 1) {
       const rect = layout.slots[i];
       const slot = game.slots[i];
-      drawBrainrotSlot(rect, slot.reserved, slot.coins);
+      drawBrainrotSlot(rect, slot);
       if (slot.templateId) {
         const template = getTemplate(slot.templateId);
         drawShopItemCard(template, rect.itemX, rect.itemY, rect.itemW, rect.itemH, {
@@ -854,17 +878,40 @@
     ctx.restore();
   }
 
-  function drawBrainrotSlot(r, reserved, coins) {
-    ctx.save();
+  function drawBrainrotSlot(r, slot) {
+    const reserved = Boolean(slot && slot.reserved);
+    const coins = Number(slot && slot.coins) || 0;
+    const hasBrainrot = Boolean(slot && slot.templateId);
+    const cooldown = hasBrainrot ? getSlotCollectCooldown(slot) : 0;
+    const isCooling = cooldown > 0;
     const cardX = r.x + r.w * 0.0909;
     const cardY = r.y;
     const cardW = r.w * (1 - 0.0909 - 0.0839);
     const cardH = r.h * (1 - 0.2761);
+    const radius = 24;
+    const baseTop = isCooling ? '#ff5c64' : '#6fff59';
+    const baseBottom = isCooling ? '#bf2435' : '#23b646';
+    const border = isCooling ? 'rgba(255,196,196,0.86)' : 'rgba(210,255,184,0.82)';
+    const labelColor = isCooling ? '#ff6b72' : '#8fff59';
+
+    ctx.save();
     ctx.globalAlpha = reserved ? 0.78 : 1;
-    roundRect(cardX, cardY, cardW, cardH, 24, 'rgba(107,255,89,0.95)', null, 0);
+
+    const baseGradient = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
+    baseGradient.addColorStop(0, baseTop);
+    baseGradient.addColorStop(1, baseBottom);
+    roundRect(cardX, cardY, cardW, cardH, radius, baseGradient, border, 3);
+
+    // 保留整体高光层次，但移除中间横条遮罩，避免出现白色杠状观感。
+
+    const shineGradient = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH * 0.55);
+    shineGradient.addColorStop(0, 'rgba(255,255,255,0.25)');
+    shineGradient.addColorStop(1, 'rgba(255,255,255,0)');
+    roundRect(cardX + 5, cardY + 5, cardW - 10, cardH * 0.48, 20, shineGradient, null, 0);
     ctx.restore();
+
     const label = coins > 0.5 ? ('$' + money(coins)) : '$0';
-    drawFigmaText(label, r.x + r.w / 2, r.y + r.h - 8, 28, '#8fff59', 'center', '700');
+    drawFigmaText(label, r.x + r.w / 2, r.y + r.h - 8, 28, labelColor, 'center', '700');
   }
 
   function drawReservedSlot(r) {
@@ -1144,6 +1191,7 @@
       const template = getTemplate(slot.templateId);
       slot.templateId = null;
       slot.reserved = false;
+      slot.collectCooldown = 0;
       addFloatText('已删除 ' + template.name, rect.cx, rect.cy - 18, '#ff4165');
       showToast('已删除，不返还金币');
       saveNow();

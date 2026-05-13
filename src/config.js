@@ -10,6 +10,7 @@ window.BRAINROT_CONFIG = {
   conveyorGap: 22,
   purchaseAnimDuration: 0.72,
   collectRadius: 54,
+  collectCooldownSeconds: 3,
   playerSpeed: 230,
   autosaveInterval: 2.0,
   conveyorBrainrotIds: [
