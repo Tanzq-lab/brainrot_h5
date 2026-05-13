@@ -13,8 +13,8 @@
   const debugPanel = document.getElementById('debug-panel');
 
   const DPR_LIMIT = 2;
-  const DESIGN = { w: 1280, h: 720 };
   const keyState = new Set();
+  const CAMERA_LERP = 9.5;
 
   let layout = null;
   let selectedDeleteSlot = null;
@@ -22,11 +22,13 @@
   let lastFrameTime = performance.now();
   let autosaveTimer = 0;
   let debugVisible = false;
+  let didValidateSpawn = false;
 
   const loaded = storage.loadState();
   const game = {
     coins: loaded.coins,
     player: { x: loaded.player.x, y: loaded.player.y, r: 20 },
+    camera: { x: 0, y: 0 },
     slots: loaded.slots,
     conveyorItems: [],
     conveyorNextTemplateIndex: loaded.conveyor.nextTemplateIndex,
@@ -41,11 +43,12 @@
       knobY: 0,
       dx: 0,
       dy: 0,
-      radius: 54
+      radius: 58
     }
   };
 
   function clamp(v, min, max) {
+    if (max < min) return min;
     return Math.max(min, Math.min(max, v));
   }
 
@@ -92,39 +95,84 @@
   }
 
   function computeLayout(w, h) {
-    const safeTop = 16;
-    const safeBottom = 18;
-    const margin = Math.max(14, w * 0.018);
-    const homeW = w * 0.47;
-    const conveyorW = Math.max(190, w * 0.22);
-    const midW = w - homeW - conveyorW - margin * 4;
-    const panelY = safeTop + 66;
-    const panelH = h - panelY - safeBottom;
-    const home = { x: margin, y: panelY, w: homeW, h: panelH };
-    const mid = { x: home.x + home.w + margin, y: panelY, w: midW, h: panelH };
-    const conveyor = { x: mid.x + mid.w + margin, y: panelY, w: conveyorW, h: panelH };
+    const mapH = Math.max(h * 1.28, 820);
+    const wall = Math.max(24, Math.min(34, h * 0.045));
+    const homeW = Math.max(650, Math.min(760, w * 0.62));
+    const homeH = Math.max(390, Math.min(470, h * 0.68));
+    const home = {
+      x: Math.max(72, w * 0.08),
+      y: (mapH - homeH) / 2,
+      w: homeW,
+      h: homeH
+    };
+    const mid = {
+      x: home.x + home.w + Math.max(105, w * 0.10),
+      y: mapH / 2 - Math.max(260, h * 0.34) / 2,
+      w: Math.max(280, Math.min(360, w * 0.26)),
+      h: Math.max(260, Math.min(330, h * 0.42))
+    };
+    const conveyor = {
+      x: mid.x + mid.w + Math.max(110, w * 0.10),
+      y: Math.max(92, mapH / 2 - Math.max(560, h * 0.78) / 2),
+      w: Math.max(250, Math.min(330, w * 0.24)),
+      h: Math.max(560, Math.min(660, h * 0.86))
+    };
+    const mapW = Math.max(w * 1.8, conveyor.x + conveyor.w + Math.max(90, w * 0.08));
 
-    const slotGapX = Math.max(10, home.w * 0.025);
-    const slotGapY = Math.max(16, home.h * 0.08);
-    const slotW = (home.w - slotGapX * 6) / 5;
-    const slotH = Math.min((home.h - slotGapY * 3) / 2, slotW * 0.96);
-    const startY = home.y + (home.h - slotH * 2 - slotGapY) / 2;
+    const entranceH = Math.max(132, home.h * 0.35);
+    const entranceY = home.y + home.h / 2 - entranceH / 2;
+    const walls = [
+      { x: home.x, y: home.y, w: home.w, h: wall, name: 'home-top' },
+      { x: home.x, y: home.y + home.h - wall, w: home.w, h: wall, name: 'home-bottom' },
+      { x: home.x, y: home.y, w: wall, h: home.h, name: 'home-left' },
+      { x: home.x + home.w - wall, y: home.y, w: wall, h: Math.max(0, entranceY - home.y), name: 'home-right-up' },
+      {
+        x: home.x + home.w - wall,
+        y: entranceY + entranceH,
+        w: wall,
+        h: Math.max(0, home.y + home.h - (entranceY + entranceH)),
+        name: 'home-right-down'
+      }
+    ].filter((r) => r.w > 0 && r.h > 0);
+
+    const floor = { x: home.x + wall, y: home.y + wall, w: home.w - wall * 2, h: home.h - wall * 2 };
+    const slotGapX = Math.max(12, floor.w * 0.024);
+    const slotGapY = Math.max(18, floor.h * 0.09);
+    const slotW = (floor.w - slotGapX * 6) / 5;
+    const slotH = Math.min((floor.h - slotGapY * 3) / 2, slotW * 0.95);
+    const slotsStartY = floor.y + (floor.h - slotH * 2 - slotGapY) / 2;
     const slots = [];
     for (let i = 0; i < cfg.maxSlots; i += 1) {
       const row = i < 5 ? 0 : 1;
       const col = i % 5;
-      const x = home.x + slotGapX + col * (slotW + slotGapX);
-      const y = startY + row * (slotH + slotGapY);
+      const x = floor.x + slotGapX + col * (slotW + slotGapX);
+      const y = slotsStartY + row * (slotH + slotGapY);
       slots.push({ x, y, w: slotW, h: slotH, cx: x + slotW / 2, cy: y + slotH / 2 });
     }
 
+    const spawn = { x: home.x + home.w * 0.48, y: home.y + home.h * 0.52 };
     layout = {
-      w, h, margin, home, mid, conveyor, slots,
-      header: { x: margin, y: safeTop, w: w - margin * 2, h: 48 },
+      w,
+      h,
+      map: { x: 0, y: 0, w: mapW, h: mapH },
+      home,
+      floor,
+      wall,
+      walls,
+      entrance: { x: home.x + home.w - wall, y: entranceY, w: wall + 18, h: entranceH },
+      mid,
+      conveyor,
+      slots,
+      spawn,
       joystick: {
-        x: Math.max(86, w * 0.1),
-        y: h - Math.max(86, h * 0.16),
-        radius: 54
+        x: Math.max(92, w * 0.12),
+        y: h - Math.max(94, h * 0.17),
+        radius: 58
+      },
+      coinHud: {
+        w: Math.max(156, Math.min(210, w * 0.17)),
+        h: 54,
+        margin: Math.max(18, w * 0.018)
       }
     };
 
@@ -136,9 +184,60 @@
       game.joystick.radius = layout.joystick.radius;
     }
 
-    game.player.x = clamp(game.player.x, home.x + 22, mid.x + mid.w - 22);
-    game.player.y = clamp(game.player.y, panelY + 22, panelY + panelH - 22);
+    if (!didValidateSpawn) {
+      didValidateSpawn = true;
+      if (!isPlayerPositionValid(game.player.x, game.player.y)) {
+        placePlayerAtSpawn();
+      }
+      snapCameraToPlayer();
+    } else {
+      game.player.x = clamp(game.player.x, game.player.r, layout.map.w - game.player.r);
+      game.player.y = clamp(game.player.y, game.player.r, layout.map.h - game.player.r);
+      if (collidesWithWalls(game.player.x, game.player.y, game.player.r)) placePlayerAtSpawn();
+      snapCameraToPlayer(false);
+    }
     rebuildConveyorPositions(false);
+  }
+
+  function placePlayerAtSpawn() {
+    game.player.x = layout.spawn.x;
+    game.player.y = layout.spawn.y;
+  }
+
+  function isPlayerPositionValid(x, y) {
+    if (!layout || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const r = game.player.r;
+    if (x < r || y < r || x > layout.map.w - r || y > layout.map.h - r) return false;
+    return !collidesWithWalls(x, y, r);
+  }
+
+  function clampCamera(x, y) {
+    return {
+      x: clamp(x, 0, Math.max(0, layout.map.w - layout.w)),
+      y: clamp(y, 0, Math.max(0, layout.map.h - layout.h))
+    };
+  }
+
+  function snapCameraToPlayer(force) {
+    if (!layout) return;
+    const target = clampCamera(game.player.x - layout.w / 2, game.player.y - layout.h / 2);
+    if (force === false) {
+      game.camera.x = clamp(game.camera.x, 0, Math.max(0, layout.map.w - layout.w));
+      game.camera.y = clamp(game.camera.y, 0, Math.max(0, layout.map.h - layout.h));
+    } else {
+      game.camera.x = target.x;
+      game.camera.y = target.y;
+    }
+  }
+
+  function updateCamera(dt) {
+    const target = clampCamera(game.player.x - layout.w / 2, game.player.y - layout.h / 2);
+    const t = 1 - Math.exp(-CAMERA_LERP * dt);
+    game.camera.x = lerp(game.camera.x, target.x, t);
+    game.camera.y = lerp(game.camera.y, target.y, t);
+    const clamped = clampCamera(game.camera.x, game.camera.y);
+    game.camera.x = clamped.x;
+    game.camera.y = clamped.y;
   }
 
   function initConveyor() {
@@ -150,7 +249,8 @@
         empty: Boolean(item.empty),
         yRatio: Number.isFinite(item.yRatio) ? item.yRatio : index / cfg.conveyorVisibleCount,
         x: 0,
-        y: 0
+        y: 0,
+        hitSize: 0
       }));
     }
 
@@ -164,22 +264,23 @@
           empty: false,
           yRatio: (i - 0.5) / cfg.conveyorVisibleCount,
           x: 0,
-          y: 0
+          y: 0,
+          hitSize: 0
         });
       }
       game.conveyorNextTemplateIndex = (cfg.conveyorVisibleCount + 1) % cfg.brainrots.length;
     }
   }
 
-  function rebuildConveyorPositions(keepRatios) {
+  function rebuildConveyorPositions() {
     if (!layout || !game.conveyorItems.length) return;
     const conv = layout.conveyor;
     const spacing = conv.h / cfg.conveyorVisibleCount;
     for (const item of game.conveyorItems) {
-      if (!keepRatios && !Number.isFinite(item.yRatio)) item.yRatio = 0;
+      if (!Number.isFinite(item.yRatio)) item.yRatio = 0;
       item.x = conv.x + conv.w / 2;
       item.y = conv.y + item.yRatio * conv.h;
-      item.hitSize = Math.min(cfg.conveyorItemSize, conv.w * 0.58, spacing * 0.74);
+      item.hitSize = Math.min(cfg.conveyorItemSize, conv.w * 0.56, spacing * 0.74);
     }
   }
 
@@ -194,10 +295,6 @@
       if (!slot.reserved && !slot.templateId) return slot;
     }
     return null;
-  }
-
-  function canUseSlot(slot) {
-    return slot && !slot.reserved && !slot.templateId;
   }
 
   function purchaseConveyorItem(item) {
@@ -219,13 +316,12 @@
     targetSlot.reserved = true;
     targetSlot.templateId = null;
 
-    const from = { x: item.x, y: item.y };
     const to = { x: layout.mid.x + layout.mid.w / 2, y: layout.mid.y + layout.mid.h / 2 };
     game.purchaseAnimations.push({
       templateId: template.id,
       slotIndex: targetSlot.index,
-      fromX: from.x,
-      fromY: from.y,
+      fromX: item.x,
+      fromY: item.y,
       toX: to.x,
       toY: to.y,
       t: 0,
@@ -235,7 +331,7 @@
     item.empty = true;
     item.templateId = null;
     showToast('购买成功：' + template.name);
-    addFloatText('-' + money(template.price), from.x, from.y - 22, '#ffdf5e');
+    addFloatText('-' + money(template.price), item.x, item.y - 22, '#ffdf5e');
     saveNow();
   }
 
@@ -251,6 +347,7 @@
 
   function update(dt) {
     updatePlayer(dt);
+    updateCamera(dt);
     updateConveyor(dt);
     updateProduction(dt);
     updateCollection();
@@ -275,17 +372,32 @@
       dx /= len;
       dy /= len;
     }
-    game.player.x += dx * cfg.playerSpeed * dt;
-    game.player.y += dy * cfg.playerSpeed * dt;
 
-    const bounds = {
-      left: layout.home.x + 18,
-      right: layout.mid.x + layout.mid.w - 18,
-      top: layout.home.y + 18,
-      bottom: layout.home.y + layout.home.h - 18
-    };
-    game.player.x = clamp(game.player.x, bounds.left, bounds.right);
-    game.player.y = clamp(game.player.y, bounds.top, bounds.bottom);
+    const speed = cfg.playerSpeed * dt;
+    tryMovePlayer(dx * speed, 0);
+    tryMovePlayer(0, dy * speed);
+  }
+
+  function tryMovePlayer(dx, dy) {
+    if (!layout || (dx === 0 && dy === 0)) return;
+    const r = game.player.r;
+    const nextX = clamp(game.player.x + dx, r, layout.map.w - r);
+    const nextY = clamp(game.player.y + dy, r, layout.map.h - r);
+    if (!collidesWithWalls(nextX, nextY, r)) {
+      game.player.x = nextX;
+      game.player.y = nextY;
+    }
+  }
+
+  function collidesWithWalls(x, y, radius) {
+    if (!layout) return false;
+    return layout.walls.some((rect) => circleRectOverlap(x, y, radius, rect));
+  }
+
+  function circleRectOverlap(cx, cy, r, rect) {
+    const nearestX = clamp(cx, rect.x, rect.x + rect.w);
+    const nearestY = clamp(cy, rect.y, rect.y + rect.h);
+    return Math.hypot(cx - nearestX, cy - nearestY) < r;
   }
 
   function updateConveyor(dt) {
@@ -323,7 +435,7 @@
         if (gained > 0) {
           game.coins += gained;
           total += gained;
-          addFloatText('+' + money(gained), rect.cx, rect.cy - 24, '#78ff75');
+          addFloatText('+' + money(gained), rect.cx, rect.cy - 24, '#22ff66');
         }
         slot.coins = 0;
       }
@@ -355,57 +467,94 @@
     const w = layout.w;
     const h = layout.h;
     ctx.clearRect(0, 0, w, h);
-    drawBackground(w, h);
-    drawHeader();
-    drawPanels();
-    drawSlots();
+    ctx.save();
+    ctx.translate(-game.camera.x, -game.camera.y);
+    drawWorldBackground();
+    drawHomeBase();
     drawMidArea();
     drawConveyor();
+    drawSlots();
     drawPurchaseAnimations();
     drawPlayer();
-    drawJoystick();
     drawFloatingTexts();
+    ctx.restore();
+    drawHud();
     if (debugVisible) drawDebug();
   }
 
-  function drawBackground(w, h) {
-    const g = ctx.createLinearGradient(0, 0, w, h);
-    g.addColorStop(0, '#251150');
-    g.addColorStop(0.48, '#12082a');
-    g.addColorStop(1, '#07030d');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
+  function drawWorldBackground() {
+    const map = layout.map;
+    ctx.fillStyle = '#5ec749';
+    ctx.fillRect(0, 0, map.w, map.h);
 
     ctx.save();
-    ctx.globalAlpha = 0.1;
-    for (let x = -40; x < w; x += 44) {
+    ctx.globalAlpha = 0.34;
+    ctx.strokeStyle = '#95e67b';
+    ctx.lineWidth = 1;
+    const tile = 58;
+    for (let x = 0; x <= map.w; x += tile) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.lineTo(x + 280, h);
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1;
+      ctx.lineTo(x, map.h);
       ctx.stroke();
+    }
+    for (let y = 0; y <= map.h; y += tile) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(map.w, y);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    for (let i = 0; i < 90; i += 1) {
+      const x = (i * 149) % map.w;
+      const y = (i * 83) % map.h;
+      ctx.fillStyle = i % 3 === 0 ? '#3da934' : '#78d85d';
+      ctx.beginPath();
+      ctx.ellipse(x, y, 3 + (i % 4), 1.5 + (i % 3), (i * 0.7) % Math.PI, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.restore();
   }
 
-  function drawHeader() {
-    const r = layout.header;
-    roundRect(r.x, r.y, r.w, r.h, 18, 'rgba(0,0,0,0.42)', 'rgba(255,255,255,0.12)', 2);
-    drawText('脑腐传送带 MVP', r.x + 22, r.y + 31, 22, '#ffffff', 'left', '900');
-    drawPill(r.x + 250, r.y + 9, 160, 30, '金币：' + money(game.coins), '#ffe45f', '#332300');
-    drawText('WASD/方向键也可移动 · 点击右侧脑腐购买 · 靠近格子自动收钱', r.x + r.w - 18, r.y + 30, 15, '#d9d2ff', 'right', '700');
-  }
+  function drawHomeBase() {
+    const home = layout.home;
+    const floor = layout.floor;
 
-  function drawPanels() {
-    drawArea(layout.home, '我的家', '#2d145f', '#6734bd');
-    drawArea(layout.mid, '收集区域', '#102d4f', '#26a9ff');
-    drawArea(layout.conveyor, '传送带', '#3d1c14', '#ffb347');
-  }
+    roundRect(home.x - 9, home.y - 9, home.w + 18, home.h + 18, 22, 'rgba(33,92,38,0.26)', null, 0);
+    roundRect(floor.x, floor.y, floor.w, floor.h, 10, '#9b9b9b', '#cfcfcf', 2);
 
-  function drawArea(rect, title, fill, stroke) {
-    roundRect(rect.x, rect.y, rect.w, rect.h, 26, fill, stroke, 3);
-    drawText(title, rect.x + 20, rect.y + 30, 20, '#fff', 'left', '900');
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    for (let x = floor.x; x <= floor.x + floor.w; x += 42) {
+      ctx.beginPath();
+      ctx.moveTo(x, floor.y);
+      ctx.lineTo(x, floor.y + floor.h);
+      ctx.stroke();
+    }
+    for (let y = floor.y; y <= floor.y + floor.h; y += 42) {
+      ctx.beginPath();
+      ctx.moveTo(floor.x, y);
+      ctx.lineTo(floor.x + floor.w, y);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    for (const wall of layout.walls) {
+      roundRect(wall.x, wall.y, wall.w, wall.h, 7, '#2abf42', '#15752a', 3);
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = '#d8ffd0';
+      ctx.fillRect(wall.x + 4, wall.y + 4, Math.max(0, wall.w - 8), Math.max(0, Math.min(8, wall.h - 8)));
+      ctx.restore();
+    }
+
+    const e = layout.entrance;
+    drawText('出口', e.x + e.w + 18, e.y + e.h / 2 + 6, 16, '#145a20', 'left', '900', true);
   }
 
   function drawSlots() {
@@ -413,25 +562,30 @@
       const rect = layout.slots[i];
       const slot = game.slots[i];
       const hasCoins = slot.coins > 0.5;
-      let fill = slot.templateId ? '#201236' : '#161126';
-      if (slot.reserved) fill = '#2d2d40';
-      roundRect(rect.x, rect.y, rect.w, rect.h, 18, fill, hasCoins ? '#ffe45f' : '#7c61bd', hasCoins ? 4 : 2);
+      let fill = slot.templateId ? '#e8e8e8' : '#bfbfbf';
+      if (slot.reserved) fill = '#dadada';
+      roundRect(rect.x, rect.y, rect.w, rect.h, 16, fill, hasCoins ? '#ffd528' : '#6f6f6f', hasCoins ? 4 : 2);
+      ctx.save();
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(rect.x + 4, rect.y + rect.h - 12, rect.w - 8, 8);
+      ctx.restore();
 
-      drawText(String(i + 1), rect.x + 10, rect.y + 20, 14, '#bca9ff', 'left', '800');
+      drawText(String(i + 1), rect.x + 10, rect.y + 20, 14, '#3d3d3d', 'left', '900');
 
       if (slot.templateId) {
-        drawBrainrot(getTemplate(slot.templateId), rect.cx, rect.cy - 8, Math.min(rect.w, rect.h) * 0.46, false);
         const template = getTemplate(slot.templateId);
-        drawText(template.name, rect.cx, rect.y + rect.h - 28, 13, '#ffffff', 'center', '900');
-        drawText('+' + money(template.incomePerSecond) + '/秒', rect.cx, rect.y + rect.h - 11, 12, '#9fffd0', 'center', '800');
+        drawBrainrot(template, rect.cx, rect.cy - 10, Math.min(rect.w, rect.h) * 0.43, false);
+        drawText(template.name, rect.cx, rect.y + rect.h - 27, 13, '#262626', 'center', '900');
+        drawText('+' + money(template.incomePerSecond) + '/秒', rect.cx, rect.y + rect.h - 10, 12, '#106b27', 'center', '900');
       } else if (slot.reserved) {
-        drawText('运输中', rect.cx, rect.cy, 16, '#d9d9ff', 'center', '900');
+        drawText('运输中', rect.cx, rect.cy, 16, '#454545', 'center', '900');
       } else {
-        drawText('空位', rect.cx, rect.cy, 16, '#766a9c', 'center', '900');
+        drawText('空位', rect.cx, rect.cy, 16, '#777', 'center', '900');
       }
 
       if (hasCoins) {
-        drawCoinBubble(rect.cx, rect.y - 6, money(slot.coins));
+        drawCoinBubble(rect.cx, rect.y - 9, money(slot.coins));
       }
     }
   }
@@ -439,49 +593,55 @@
   function drawMidArea() {
     const m = layout.mid;
     ctx.save();
-    ctx.globalAlpha = 0.18;
-    ctx.strokeStyle = '#76d7ff';
-    ctx.lineWidth = 5;
+    ctx.globalAlpha = 0.52;
+    roundRect(m.x, m.y, m.w, m.h, 26, 'rgba(87,205,255,0.18)', '#42c8ff', 4);
     ctx.setLineDash([14, 14]);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(m.x + 24, m.y + m.h / 2);
-    ctx.lineTo(m.x + m.w - 24, m.y + m.h / 2);
+    ctx.moveTo(m.x + 28, m.y + m.h / 2);
+    ctx.lineTo(m.x + m.w - 28, m.y + m.h / 2);
     ctx.stroke();
     ctx.restore();
-    drawText('购买后先飞到这里，再入库', m.x + m.w / 2, m.y + m.h / 2 + 40, 15, '#a8e8ff', 'center', '800');
+    drawText('收集区', m.x + m.w / 2, m.y + 38, 20, '#087094', 'center', '900', true);
+    drawText('购买动画经过这里', m.x + m.w / 2, m.y + m.h / 2 + 44, 15, '#087094', 'center', '900', true);
   }
 
   function drawConveyor() {
     const conv = layout.conveyor;
+    roundRect(conv.x, conv.y, conv.w, conv.h, 24, '#e9bc72', '#85531c', 4);
+    drawText('传送带', conv.x + conv.w / 2, conv.y + 34, 22, '#3b2209', 'center', '900');
+
     const beltX = conv.x + conv.w * 0.5;
-    const beltW = Math.min(116, conv.w * 0.62);
-    roundRect(beltX - beltW / 2, conv.y + 48, beltW, conv.h - 76, 22, '#24100b', '#b86e22', 4);
+    const beltW = Math.min(132, conv.w * 0.58);
+    roundRect(beltX - beltW / 2, conv.y + 56, beltW, conv.h - 86, 22, '#24100b', '#7a4218', 4);
 
     ctx.save();
     ctx.beginPath();
-    ctx.rect(conv.x, conv.y + 44, conv.w, conv.h - 54);
+    ctx.rect(conv.x, conv.y + 48, conv.w, conv.h - 56);
     ctx.clip();
-    ctx.globalAlpha = 0.28;
+    ctx.globalAlpha = 0.30;
     ctx.strokeStyle = '#ffd58a';
     ctx.lineWidth = 3;
     for (let y = conv.y - 80; y < conv.y + conv.h + 120; y += 42) {
+      const off = (performance.now() / 28) % 42;
       ctx.beginPath();
-      ctx.moveTo(beltX - beltW / 2 + 10, y + ((performance.now() / 28) % 42));
-      ctx.lineTo(beltX + beltW / 2 - 10, y + 20 + ((performance.now() / 28) % 42));
+      ctx.moveTo(beltX - beltW / 2 + 10, y + off);
+      ctx.lineTo(beltX + beltW / 2 - 10, y + 20 + off);
       ctx.stroke();
     }
     ctx.restore();
 
     const sorted = [...game.conveyorItems].sort((a, b) => a.y - b.y);
     for (const item of sorted) {
-      if (item.y < conv.y + 42 || item.y > conv.y + conv.h - 8) continue;
+      if (item.y < conv.y + 48 || item.y > conv.y + conv.h - 12) continue;
       if (item.empty || !item.templateId) {
-        drawText('空', item.x, item.y + 4, 14, 'rgba(255,255,255,0.28)', 'center', '900');
+        drawText('空', item.x, item.y + 5, 14, 'rgba(255,255,255,0.35)', 'center', '900');
         continue;
       }
       const template = getTemplate(item.templateId);
       drawBrainrot(template, item.x, item.y, item.hitSize / 2, true);
-      drawText(template.name, item.x, item.y + item.hitSize / 2 + 18, 13, '#fff', 'center', '900');
+      drawText(template.name, item.x, item.y + item.hitSize / 2 + 18, 13, '#fff', 'center', '900', true);
       drawPill(item.x - 43, item.y + item.hitSize / 2 + 25, 86, 24, '$' + money(template.price), '#ffe45f', '#2b1b00');
     }
   }
@@ -501,7 +661,7 @@
     const p = game.player;
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
     ctx.shadowBlur = 10;
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
@@ -518,6 +678,29 @@
     ctx.restore();
   }
 
+  function drawHud() {
+    drawJoystick();
+    drawCoinHud();
+  }
+
+  function drawCoinHud() {
+    const hud = layout.coinHud;
+    const x = layout.w - hud.w - hud.margin;
+    const y = layout.h - hud.h - Math.max(18, hud.margin);
+    roundRect(x, y, hud.w, hud.h, 20, 'rgba(20, 10, 0, 0.72)', 'rgba(255,255,255,0.35)', 2);
+    ctx.save();
+    ctx.fillStyle = '#ffd83d';
+    ctx.beginPath();
+    ctx.arc(x + 30, y + hud.h / 2, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#fff1a4';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    drawText('$', x + 30, y + hud.h / 2 + 7, 20, '#5e3a00', 'center', '900');
+    ctx.restore();
+    drawText(money(game.coins), x + 56, y + 35, 24, '#ffffff', 'left', '900', true);
+  }
+
   function drawJoystick() {
     const j = game.joystick;
     ctx.save();
@@ -526,7 +709,7 @@
     ctx.beginPath();
     ctx.arc(j.baseX, j.baseY, j.radius, 0, Math.PI * 2);
     ctx.fill();
-    ctx.globalAlpha = j.active ? 0.88 : 0.55;
+    ctx.globalAlpha = j.active ? 0.9 : 0.58;
     ctx.fillStyle = '#7b54ff';
     ctx.beginPath();
     ctx.arc(j.knobX, j.knobY, j.radius * 0.42, 0, Math.PI * 2);
@@ -550,6 +733,9 @@
     debugPanel.textContent = [
       'coins: ' + Math.floor(game.coins),
       'occupied/reserved: ' + occupied + '/10',
+      'player: ' + Math.floor(game.player.x) + ',' + Math.floor(game.player.y),
+      'camera: ' + Math.floor(game.camera.x) + ',' + Math.floor(game.camera.y),
+      'map: ' + Math.floor(layout.map.w) + 'x' + Math.floor(layout.map.h),
       'animations: ' + game.purchaseAnimations.length,
       'nextTpl: ' + game.conveyorNextTemplateIndex,
       'storageKey: ' + cfg.storageKey
@@ -644,11 +830,15 @@
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
+  function screenToWorld(x, y) {
+    return { x: x + game.camera.x, y: y + game.camera.y };
+  }
+
   function onPointerDown(e) {
     if (!layout || !modalEl.classList.contains('hidden')) return;
     const p = pointerToCanvas(e);
     const js = layout.joystick;
-    const isJoystickZone = p.x < layout.w * 0.28 && p.y > layout.h * 0.52;
+    const isJoystickZone = p.x < layout.w * 0.30 && p.y > layout.h * 0.48;
     if (isJoystickZone) {
       game.joystick.active = true;
       game.joystick.pointerId = e.pointerId;
@@ -659,16 +849,15 @@
       return;
     }
 
-    const conveyorItem = hitConveyorItem(p.x, p.y);
+    const world = screenToWorld(p.x, p.y);
+    const conveyorItem = hitConveyorItem(world.x, world.y);
     if (conveyorItem) {
       purchaseConveyorItem(conveyorItem);
       return;
     }
 
-    const slotIndex = hitSlot(p.x, p.y);
-    if (slotIndex >= 0) {
-      onSlotClick(slotIndex);
-    }
+    const slotIndex = hitSlot(world.x, world.y);
+    if (slotIndex >= 0) onSlotClick(slotIndex);
   }
 
   function onPointerMove(e) {
@@ -704,8 +893,8 @@
     for (let i = game.conveyorItems.length - 1; i >= 0; i -= 1) {
       const item = game.conveyorItems[i];
       if (item.empty || !item.templateId) continue;
-      if (item.y < layout.conveyor.y + 42 || item.y > layout.conveyor.y + layout.conveyor.h - 8) continue;
-      const radius = Math.max(42, item.hitSize * 0.64);
+      if (item.y < layout.conveyor.y + 48 || item.y > layout.conveyor.y + layout.conveyor.h - 12) continue;
+      const radius = Math.max(42, item.hitSize * 0.68);
       if (Math.hypot(x - item.x, y - item.y) <= radius) return item;
     }
     return null;
@@ -741,7 +930,7 @@
       const template = getTemplate(slot.templateId);
       slot.templateId = null;
       slot.reserved = false;
-      addFloatText('已删除 ' + template.name, rect.cx, rect.cy - 18, '#ff8aa8');
+      addFloatText('已删除 ' + template.name, rect.cx, rect.cy - 18, '#ff4165');
       showToast('已删除，不返还金币');
       saveNow();
     }
@@ -755,14 +944,16 @@
   function resetGame() {
     const fresh = storage.resetState();
     game.coins = fresh.coins;
-    game.player.x = fresh.player.x;
-    game.player.y = fresh.player.y;
     game.slots = fresh.slots;
     game.conveyorNextTemplateIndex = fresh.conveyor.nextTemplateIndex;
     game.purchaseAnimations = [];
     game.floatingTexts = [];
+    game.conveyorItems = [];
     initConveyor();
-    rebuildConveyorPositions(true);
+    rebuildConveyorPositions();
+    placePlayerAtSpawn();
+    snapCameraToPlayer();
+    saveNow();
     showToast('已重置');
   }
 
@@ -808,7 +999,7 @@
     setupEvents();
     resize();
     requestAnimationFrame(gameLoop);
-    showToast('点击右侧脑腐购买，靠近家里格子收钱');
+    showToast('摇杆移动，点击传送带脑腐购买');
   }
 
   boot();
