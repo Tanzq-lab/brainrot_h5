@@ -15,6 +15,47 @@
   const DPR_LIMIT = 2;
   const keyState = new Set();
   const CAMERA_LERP = 9.5;
+  const FIGMA_LAYOUT_VERSION = 'figma_node_4_9_v1';
+  const TILE_IMG_PATH = 'assets/images/RobloxOverlayImg.png';
+
+  const FIGMA = {
+    world: { w: 2600, h: 1757 },
+    room: { x: 256, y: 438, w: 1563, h: 915 },
+    shopFloor: { x: 309, y: 539, w: 1407, h: 730 },
+    roomCorridor: { x: 1716, y: 749, w: 103, h: 322 },
+    collection: { x: 1871, y: 648, w: 256, h: 512 },
+    conveyor: { x: 2344, y: 1, w: 256, h: 1756 },
+    slots: [
+      { x: 372, y: 585, w: 143, h: 163, itemX: 352, itemY: 455 },
+      { x: 635, y: 585, w: 143, h: 163, itemX: 618, itemY: 455 },
+      { x: 902, y: 585, w: 143, h: 163, itemX: 884, itemY: 455 },
+      { x: 1168, y: 585, w: 143, h: 163, itemX: 1150, itemY: 461 },
+      { x: 1431, y: 585, w: 143, h: 163, itemX: 1416, itemY: 461 },
+      { x: 367, y: 1174, w: 143, h: 163, itemX: 350, itemY: 1051 },
+      { x: 640, y: 1174, w: 143, h: 163, itemX: 623, itemY: 1051 },
+      { x: 897, y: 1174, w: 143, h: 163, itemX: 879, itemY: 1051 },
+      { x: 1150, y: 1174, w: 143, h: 163, itemX: 1135, itemY: 1051 },
+      { x: 1425, y: 1174, w: 143, h: 163, itemX: 1408, itemY: 1051 }
+    ],
+    conveyorItems: [
+      { x: 2374, y: 12, w: 170, h: 279 },
+      { x: 2376, y: 321, w: 170, h: 279 },
+      { x: 2387, y: 679, w: 170, h: 279 },
+      { x: 2390, y: 1012, w: 170, h: 279 },
+      { x: 2390, y: 1396, w: 170, h: 279 }
+    ],
+    playerSpawn: { x: 986, y: 904 },
+    hud: {
+      joystick: { outerX: 84, outerY: 612, outerW: 132, outerH: 132, centerX: 150, centerY: 678, ringX: 103, ringY: 631, ringW: 94, knobSize: 38 },
+      coin: { w: 216, h: 62, right: 32, bottom: 32, icon: 38 }
+    }
+  };
+
+  const tileImage = new Image();
+  let tileImageReady = false;
+  tileImage.onload = () => { tileImageReady = true; };
+  tileImage.onerror = () => { console.warn('[BrainrotUI] RobloxOverlayImg 加载失败，使用纯色兜底'); };
+  tileImage.src = TILE_IMG_PATH;
 
   let layout = null;
   let selectedDeleteSlot = null;
@@ -34,6 +75,7 @@
     conveyorNextTemplateIndex: loaded.conveyor.nextTemplateIndex,
     purchaseAnimations: [],
     floatingTexts: [],
+    layoutVersion: loaded.layoutVersion || null,
     joystick: {
       active: false,
       pointerId: null,
@@ -95,85 +137,46 @@
   }
 
   function computeLayout(w, h) {
-    const mapH = Math.max(h * 1.28, 820);
-    const wall = Math.max(24, Math.min(34, h * 0.045));
-    const homeW = Math.max(650, Math.min(760, w * 0.62));
-    const homeH = Math.max(390, Math.min(470, h * 0.68));
-    const home = {
-      x: Math.max(72, w * 0.08),
-      y: (mapH - homeH) / 2,
-      w: homeW,
-      h: homeH
-    };
-    const mid = {
-      x: home.x + home.w + Math.max(105, w * 0.10),
-      y: mapH / 2 - Math.max(260, h * 0.34) / 2,
-      w: Math.max(280, Math.min(360, w * 0.26)),
-      h: Math.max(260, Math.min(330, h * 0.42))
-    };
-    const conveyor = {
-      x: mid.x + mid.w + Math.max(110, w * 0.10),
-      y: Math.max(92, mapH / 2 - Math.max(560, h * 0.78) / 2),
-      w: Math.max(250, Math.min(330, w * 0.24)),
-      h: Math.max(560, Math.min(660, h * 0.86))
-    };
-    const mapW = Math.max(w * 1.8, conveyor.x + conveyor.w + Math.max(90, w * 0.08));
+    const slots = FIGMA.slots.map((slot, index) => ({
+      index,
+      x: slot.x,
+      y: slot.y,
+      w: slot.w,
+      h: slot.h,
+      cx: slot.x + slot.w / 2,
+      cy: slot.y + slot.h / 2,
+      itemX: slot.itemX,
+      itemY: slot.itemY,
+      itemW: 170,
+      itemH: 279
+    }));
 
-    const entranceH = Math.max(132, home.h * 0.35);
-    const entranceY = home.y + home.h / 2 - entranceH / 2;
-    const walls = [
-      { x: home.x, y: home.y, w: home.w, h: wall, name: 'home-top' },
-      { x: home.x, y: home.y + home.h - wall, w: home.w, h: wall, name: 'home-bottom' },
-      { x: home.x, y: home.y, w: wall, h: home.h, name: 'home-left' },
-      { x: home.x + home.w - wall, y: home.y, w: wall, h: Math.max(0, entranceY - home.y), name: 'home-right-up' },
-      {
-        x: home.x + home.w - wall,
-        y: entranceY + entranceH,
-        w: wall,
-        h: Math.max(0, home.y + home.h - (entranceY + entranceH)),
-        name: 'home-right-down'
-      }
-    ].filter((r) => r.w > 0 && r.h > 0);
+    const wallRects = [
+      { x: 256, y: 438, w: 1563, h: 101, name: 'figma-room-top-wall' },
+      { x: 256, y: 1269, w: 1563, h: 84, name: 'figma-room-bottom-wall' },
+      { x: 256, y: 438, w: 53, h: 915, name: 'figma-room-left-wall' },
+      { x: 1716, y: 438, w: 103, h: 311, name: 'figma-room-right-up-wall' },
+      { x: 1716, y: 1071, w: 103, h: 282, name: 'figma-room-right-down-wall' }
+    ];
 
-    const floor = { x: home.x + wall, y: home.y + wall, w: home.w - wall * 2, h: home.h - wall * 2 };
-    const slotGapX = Math.max(12, floor.w * 0.024);
-    const slotGapY = Math.max(18, floor.h * 0.09);
-    const slotW = (floor.w - slotGapX * 6) / 5;
-    const slotH = Math.min((floor.h - slotGapY * 3) / 2, slotW * 0.95);
-    const slotsStartY = floor.y + (floor.h - slotH * 2 - slotGapY) / 2;
-    const slots = [];
-    for (let i = 0; i < cfg.maxSlots; i += 1) {
-      const row = i < 5 ? 0 : 1;
-      const col = i % 5;
-      const x = floor.x + slotGapX + col * (slotW + slotGapX);
-      const y = slotsStartY + row * (slotH + slotGapY);
-      slots.push({ x, y, w: slotW, h: slotH, cx: x + slotW / 2, cy: y + slotH / 2 });
-    }
-
-    const spawn = { x: home.x + home.w * 0.48, y: home.y + home.h * 0.52 };
     layout = {
       w,
       h,
-      map: { x: 0, y: 0, w: mapW, h: mapH },
-      home,
-      floor,
-      wall,
-      walls,
-      entrance: { x: home.x + home.w - wall, y: entranceY, w: wall + 18, h: entranceH },
-      mid,
-      conveyor,
+      scale: 1,
+      map: { x: 0, y: 0, w: FIGMA.world.w, h: FIGMA.world.h },
+      room: FIGMA.room,
+      floor: FIGMA.shopFloor,
+      roomCorridor: FIGMA.roomCorridor,
+      home: FIGMA.room,
+      mid: FIGMA.collection,
+      conveyor: FIGMA.conveyor,
+      conveyorSlots: FIGMA.conveyorItems.map((r, index) => ({ ...r, index, cx: r.x + r.w / 2, cy: r.y + r.h / 2 })),
       slots,
-      spawn,
-      joystick: {
-        x: Math.max(92, w * 0.12),
-        y: h - Math.max(94, h * 0.17),
-        radius: 58
-      },
-      coinHud: {
-        w: Math.max(156, Math.min(210, w * 0.17)),
-        h: 54,
-        margin: Math.max(18, w * 0.018)
-      }
+      walls: wallRects,
+      entrance: FIGMA.roomCorridor,
+      spawn: FIGMA.playerSpawn,
+      joystick: computeHudJoystick(w, h),
+      coinHud: computeHudCoin(w, h)
     };
 
     if (!game.joystick.active) {
@@ -186,8 +189,10 @@
 
     if (!didValidateSpawn) {
       didValidateSpawn = true;
-      if (!isPlayerPositionValid(game.player.x, game.player.y)) {
+      if (game.layoutVersion !== FIGMA_LAYOUT_VERSION || !isPlayerPositionValid(game.player.x, game.player.y)) {
         placePlayerAtSpawn();
+        game.layoutVersion = FIGMA_LAYOUT_VERSION;
+        saveNow();
       }
       snapCameraToPlayer();
     } else {
@@ -197,6 +202,23 @@
       snapCameraToPlayer(false);
     }
     rebuildConveyorPositions(false);
+  }
+
+  function computeHudJoystick(w, h) {
+    const centerX = Math.max(92, FIGMA.hud.joystick.centerX);
+    const centerY = Math.min(h - 72, Math.max(96, h - (768 - FIGMA.hud.joystick.centerY)));
+    return { x: centerX, y: centerY, radius: FIGMA.hud.joystick.outerW / 2 };
+  }
+
+  function computeHudCoin(w, h) {
+    const hud = FIGMA.hud.coin;
+    return {
+      w: hud.w,
+      h: hud.h,
+      x: Math.max(16, w - hud.w - hud.right),
+      y: Math.max(16, h - hud.h - hud.bottom),
+      icon: hud.icon
+    };
   }
 
   function placePlayerAtSpawn() {
@@ -242,45 +264,48 @@
 
   function initConveyor() {
     const saved = loaded.conveyor && Array.isArray(loaded.conveyor.items) ? loaded.conveyor.items : [];
+    const defaults = [0.086, 0.262, 0.466, 0.655, 0.874];
     if (saved.length) {
-      game.conveyorItems = saved.slice(0, cfg.conveyorVisibleCount + 1).map((item, index) => ({
+      game.conveyorItems = saved.slice(0, cfg.conveyorVisibleCount).map((item, index) => ({
         id: 'cv_' + Date.now() + '_' + index + '_' + Math.random().toString(16).slice(2),
         templateId: item.empty ? null : item.templateId,
         empty: Boolean(item.empty),
-        yRatio: Number.isFinite(item.yRatio) ? item.yRatio : index / cfg.conveyorVisibleCount,
+        yRatio: Number.isFinite(item.yRatio) ? item.yRatio : defaults[index % defaults.length],
         x: 0,
         y: 0,
-        hitSize: 0
+        hitSize: 0,
+        rect: null
       }));
     }
 
-    if (game.conveyorItems.length < cfg.conveyorVisibleCount + 1) {
+    if (game.conveyorItems.length < cfg.conveyorVisibleCount) {
       game.conveyorItems = [];
-      for (let i = 0; i < cfg.conveyorVisibleCount + 1; i += 1) {
+      for (let i = 0; i < cfg.conveyorVisibleCount; i += 1) {
         const template = cfg.brainrots[i % cfg.brainrots.length];
         game.conveyorItems.push({
           id: 'cv_' + i,
           templateId: template.id,
           empty: false,
-          yRatio: (i - 0.5) / cfg.conveyorVisibleCount,
+          yRatio: defaults[i],
           x: 0,
           y: 0,
-          hitSize: 0
+          hitSize: 0,
+          rect: null
         });
       }
-      game.conveyorNextTemplateIndex = (cfg.conveyorVisibleCount + 1) % cfg.brainrots.length;
+      game.conveyorNextTemplateIndex = cfg.conveyorVisibleCount % cfg.brainrots.length;
     }
   }
 
   function rebuildConveyorPositions() {
     if (!layout || !game.conveyorItems.length) return;
     const conv = layout.conveyor;
-    const spacing = conv.h / cfg.conveyorVisibleCount;
     for (const item of game.conveyorItems) {
-      if (!Number.isFinite(item.yRatio)) item.yRatio = 0;
+      if (!Number.isFinite(item.yRatio)) item.yRatio = 0.08;
       item.x = conv.x + conv.w / 2;
       item.y = conv.y + item.yRatio * conv.h;
-      item.hitSize = Math.min(cfg.conveyorItemSize, conv.w * 0.56, spacing * 0.74);
+      item.hitSize = 150;
+      item.rect = { x: item.x - 85, y: item.y - 139.5, w: 170, h: 279 };
     }
   }
 
@@ -402,16 +427,19 @@
 
   function updateConveyor(dt) {
     const conv = layout.conveyor;
+    const ratioSpeed = cfg.conveyorSpeed * dt / conv.h;
     for (const item of game.conveyorItems) {
-      item.yRatio += (cfg.conveyorSpeed * dt) / conv.h;
-      if (item.yRatio > 1.12) {
-        item.yRatio -= 1.2;
+      item.yRatio += ratioSpeed;
+      if (item.yRatio > 1.08) {
+        const minY = game.conveyorItems.reduce((m, it) => Math.min(m, it.yRatio), 1);
+        item.yRatio = minY - 0.18;
         item.empty = false;
         item.templateId = takeNextTemplateId();
         item.id = 'cv_' + performance.now() + '_' + Math.random().toString(16).slice(2);
       }
       item.x = conv.x + conv.w / 2;
       item.y = conv.y + item.yRatio * conv.h;
+      item.rect = { x: item.x - 85, y: item.y - 139.5, w: 170, h: 279 };
     }
   }
 
@@ -484,167 +512,98 @@
 
   function drawWorldBackground() {
     const map = layout.map;
-    ctx.fillStyle = '#5ec749';
-    ctx.fillRect(0, 0, map.w, map.h);
-
-    ctx.save();
-    ctx.globalAlpha = 0.34;
-    ctx.strokeStyle = '#95e67b';
-    ctx.lineWidth = 1;
-    const tile = 58;
-    for (let x = 0; x <= map.w; x += tile) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, map.h);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= map.h; y += tile) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(map.w, y);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = 0.18;
-    for (let i = 0; i < 90; i += 1) {
-      const x = (i * 149) % map.w;
-      const y = (i * 83) % map.h;
-      ctx.fillStyle = i % 3 === 0 ? '#3da934' : '#78d85d';
-      ctx.beginPath();
-      ctx.ellipse(x, y, 3 + (i % 4), 1.5 + (i % 3), (i * 0.7) % Math.PI, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
+    drawTiledRect(0, 0, map.w, map.h, '#63c849', 'rgba(118,214,87,0.35)', 0.48);
   }
 
-  function drawHomeBase() {
-    const home = layout.home;
-    const floor = layout.floor;
 
-    roundRect(home.x - 9, home.y - 9, home.w + 18, home.h + 18, 22, 'rgba(33,92,38,0.26)', null, 0);
-    roundRect(floor.x, floor.y, floor.w, floor.h, 10, '#9b9b9b', '#cfcfcf', 2);
+  function drawHomeBase() {
+    const room = layout.room;
+    roundRect(room.x, room.y, room.w, room.h, 0, '#4b4f47', null, 0);
+    drawTiledRect(layout.floor.x, layout.floor.y, layout.floor.w, layout.floor.h, '#858a89', 'rgba(75,78,76,0.34)', 0.34);
+    drawTiledRect(layout.roomCorridor.x, layout.roomCorridor.y, layout.roomCorridor.w, layout.roomCorridor.h, '#858a89', 'rgba(75,78,76,0.34)', 0.34);
 
     ctx.save();
-    ctx.globalAlpha = 0.18;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    for (let x = floor.x; x <= floor.x + floor.w; x += 42) {
-      ctx.beginPath();
-      ctx.moveTo(x, floor.y);
-      ctx.lineTo(x, floor.y + floor.h);
-      ctx.stroke();
+    ctx.globalAlpha = 0.26;
+    ctx.strokeStyle = '#23272a';
+    ctx.lineWidth = 2;
+    for (let x = layout.floor.x; x <= layout.floor.x + layout.floor.w; x += 64) {
+      ctx.beginPath(); ctx.moveTo(x, layout.floor.y); ctx.lineTo(x, layout.floor.y + layout.floor.h); ctx.stroke();
     }
-    for (let y = floor.y; y <= floor.y + floor.h; y += 42) {
-      ctx.beginPath();
-      ctx.moveTo(floor.x, y);
-      ctx.lineTo(floor.x + floor.w, y);
-      ctx.stroke();
+    for (let y = layout.floor.y; y <= layout.floor.y + layout.floor.h; y += 64) {
+      ctx.beginPath(); ctx.moveTo(layout.floor.x, y); ctx.lineTo(layout.floor.x + layout.floor.w, y); ctx.stroke();
     }
     ctx.restore();
 
     for (const wall of layout.walls) {
-      roundRect(wall.x, wall.y, wall.w, wall.h, 7, '#2abf42', '#15752a', 3);
+      roundRect(wall.x, wall.y, wall.w, wall.h, 0, '#343835', '#1d211f', 2);
       ctx.save();
       ctx.globalAlpha = 0.22;
-      ctx.fillStyle = '#d8ffd0';
-      ctx.fillRect(wall.x + 4, wall.y + 4, Math.max(0, wall.w - 8), Math.max(0, Math.min(8, wall.h - 8)));
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(wall.x + 2, wall.y + 2, Math.max(0, wall.w - 4), Math.min(10, Math.max(0, wall.h - 4)));
       ctx.restore();
     }
-
-    const e = layout.entrance;
-    drawText('出口', e.x + e.w + 18, e.y + e.h / 2 + 6, 16, '#145a20', 'left', '900', true);
   }
+
 
   function drawSlots() {
     for (let i = 0; i < layout.slots.length; i += 1) {
       const rect = layout.slots[i];
       const slot = game.slots[i];
-      const hasCoins = slot.coins > 0.5;
-      let fill = slot.templateId ? '#e8e8e8' : '#bfbfbf';
-      if (slot.reserved) fill = '#dadada';
-      roundRect(rect.x, rect.y, rect.w, rect.h, 16, fill, hasCoins ? '#ffd528' : '#6f6f6f', hasCoins ? 4 : 2);
-      ctx.save();
-      ctx.globalAlpha = 0.12;
-      ctx.fillStyle = '#000';
-      ctx.fillRect(rect.x + 4, rect.y + rect.h - 12, rect.w - 8, 8);
-      ctx.restore();
-
-      drawText(String(i + 1), rect.x + 10, rect.y + 20, 14, '#3d3d3d', 'left', '900');
-
+      drawBrainrotSlot(rect, slot.reserved);
       if (slot.templateId) {
-        const template = getTemplate(slot.templateId);
-        drawBrainrot(template, rect.cx, rect.cy - 10, Math.min(rect.w, rect.h) * 0.43, false);
-        drawText(template.name, rect.cx, rect.y + rect.h - 27, 13, '#262626', 'center', '900');
-        drawText('+' + money(template.incomePerSecond) + '/秒', rect.cx, rect.y + rect.h - 10, 12, '#106b27', 'center', '900');
+        drawShopItemCard(getTemplate(slot.templateId), rect.itemX, rect.itemY, rect.itemW, rect.itemH, {
+          mode: 'home',
+          price: Math.max(0, Math.floor(slot.coins)),
+          dim: false
+        });
       } else if (slot.reserved) {
-        drawText('运输中', rect.cx, rect.cy, 16, '#454545', 'center', '900');
-      } else {
-        drawText('空位', rect.cx, rect.cy, 16, '#777', 'center', '900');
+        drawReservedSlot(rect);
       }
-
-      if (hasCoins) {
-        drawCoinBubble(rect.cx, rect.y - 9, money(slot.coins));
+      if (slot.coins > 0.5) {
+        drawFigmaCoinAmount(rect.cx, rect.y + rect.h - 4, money(slot.coins));
       }
     }
   }
+
 
   function drawMidArea() {
     const m = layout.mid;
+    drawTiledRect(m.x, m.y, m.w, m.h, '#b8ff8a', 'rgba(97,224,79,0.26)', 0.26);
     ctx.save();
-    ctx.globalAlpha = 0.52;
-    roundRect(m.x, m.y, m.w, m.h, 26, 'rgba(87,205,255,0.18)', '#42c8ff', 4);
-    ctx.setLineDash([14, 14]);
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(m.x + 28, m.y + m.h / 2);
-    ctx.lineTo(m.x + m.w - 28, m.y + m.h / 2);
-    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.52)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([16, 10]);
+    ctx.strokeRect(m.x + 12, m.y + 12, m.w - 24, m.h - 24);
     ctx.restore();
-    drawText('收集区', m.x + m.w / 2, m.y + 38, 20, '#087094', 'center', '900', true);
-    drawText('购买动画经过这里', m.x + m.w / 2, m.y + m.h / 2 + 44, 15, '#087094', 'center', '900', true);
   }
+
 
   function drawConveyor() {
     const conv = layout.conveyor;
-    roundRect(conv.x, conv.y, conv.w, conv.h, 24, '#e9bc72', '#85531c', 4);
-    drawText('传送带', conv.x + conv.w / 2, conv.y + 34, 22, '#3b2209', 'center', '900');
-
-    const beltX = conv.x + conv.w * 0.5;
-    const beltW = Math.min(132, conv.w * 0.58);
-    roundRect(beltX - beltW / 2, conv.y + 56, beltW, conv.h - 86, 22, '#24100b', '#7a4218', 4);
-
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(conv.x, conv.y + 48, conv.w, conv.h - 56);
-    ctx.clip();
-    ctx.globalAlpha = 0.30;
-    ctx.strokeStyle = '#ffd58a';
-    ctx.lineWidth = 3;
-    for (let y = conv.y - 80; y < conv.y + conv.h + 120; y += 42) {
-      const off = (performance.now() / 28) % 42;
-      ctx.beginPath();
-      ctx.moveTo(beltX - beltW / 2 + 10, y + off);
-      ctx.lineTo(beltX + beltW / 2 - 10, y + 20 + off);
-      ctx.stroke();
-    }
+    ctx.fillStyle = '#4a4f43';
+    ctx.fillRect(conv.x, conv.y, conv.w, conv.h);
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#000000';
+    for (let y = conv.y; y < conv.y + conv.h; y += 54) ctx.fillRect(conv.x, y, conv.w, 2);
     ctx.restore();
 
     const sorted = [...game.conveyorItems].sort((a, b) => a.y - b.y);
     for (const item of sorted) {
-      if (item.y < conv.y + 48 || item.y > conv.y + conv.h - 12) continue;
+      if (!item.rect) continue;
+      if (item.rect.y > conv.y + conv.h || item.rect.y + item.rect.h < conv.y) continue;
       if (item.empty || !item.templateId) {
-        drawText('空', item.x, item.y + 5, 14, 'rgba(255,255,255,0.35)', 'center', '900');
+        drawConveyorEmpty(item.rect);
         continue;
       }
-      const template = getTemplate(item.templateId);
-      drawBrainrot(template, item.x, item.y, item.hitSize / 2, true);
-      drawText(template.name, item.x, item.y + item.hitSize / 2 + 18, 13, '#fff', 'center', '900', true);
-      drawPill(item.x - 43, item.y + item.hitSize / 2 + 25, 86, 24, '$' + money(template.price), '#ffe45f', '#2b1b00');
+      drawShopItemCard(getTemplate(item.templateId), item.rect.x, item.rect.y, item.rect.w, item.rect.h, {
+        mode: 'conveyor',
+        price: getTemplate(item.templateId).price,
+        dim: false
+      });
     }
   }
+
 
   function drawPurchaseAnimations() {
     for (const anim of game.purchaseAnimations) {
@@ -653,14 +612,26 @@
       const e = easeOutCubic(t);
       const x = lerp(anim.fromX, anim.toX, e);
       const y = lerp(anim.fromY, anim.toY, e) - Math.sin(t * Math.PI) * 40;
-      drawBrainrot(template, x, y, 38 + Math.sin(t * Math.PI) * 10, true);
+      drawBrainrot(template, x, y, 42 + Math.sin(t * Math.PI) * 8, true);
     }
   }
+
 
   function drawPlayer() {
     const p = game.player;
     ctx.save();
     ctx.translate(p.x, p.y);
+    ctx.save();
+    ctx.globalAlpha = 0.38;
+    ctx.fillStyle = '#8fd8ff';
+    ctx.beginPath();
+    ctx.arc(0, 0, 78, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#5db8e8';
+    ctx.lineWidth = 8;
+    ctx.stroke();
+    ctx.restore();
+
     ctx.shadowColor = 'rgba(0,0,0,0.45)';
     ctx.shadowBlur = 10;
     ctx.fillStyle = '#ffffff';
@@ -676,7 +647,9 @@
     ctx.fillStyle = '#301048';
     ctx.fillRect(-8, 6, 16, 4);
     ctx.restore();
+    drawText('role name', p.x, p.y - 88, 22, '#d6f8ff', 'center', '900', true);
   }
+
 
   function drawHud() {
     drawJoystick();
@@ -685,36 +658,125 @@
 
   function drawCoinHud() {
     const hud = layout.coinHud;
-    const x = layout.w - hud.w - hud.margin;
-    const y = layout.h - hud.h - Math.max(18, hud.margin);
-    roundRect(x, y, hud.w, hud.h, 20, 'rgba(20, 10, 0, 0.72)', 'rgba(255,255,255,0.35)', 2);
+    const x = hud.x;
+    const y = hud.y;
+    roundRect(x, y, hud.w, hud.h, 31, 'rgba(24,32,51,0.94)', 'rgba(58,70,99,0.94)', 2);
     ctx.save();
-    ctx.fillStyle = '#ffd83d';
+    ctx.fillStyle = '#ffd84d';
     ctx.beginPath();
-    ctx.arc(x + 30, y + hud.h / 2, 16, 0, Math.PI * 2);
+    ctx.arc(x + 39, y + hud.h / 2, 19, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#fff1a4';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#d19b12';
+    ctx.lineWidth = 2;
     ctx.stroke();
-    drawText('$', x + 30, y + hud.h / 2 + 7, 20, '#5e3a00', 'center', '900');
+    drawText('$', x + 39, y + hud.h / 2 + 8, 22, '#5e3a00', 'center', '900');
     ctx.restore();
-    drawText(money(game.coins), x + 56, y + 35, 24, '#ffffff', 'left', '900', true);
+    drawText('$ ' + money(game.coins), x + 70, y + 39, 28, '#ffffff', 'left', '900');
   }
+
 
   function drawJoystick() {
     const j = game.joystick;
     ctx.save();
-    ctx.globalAlpha = j.active ? 0.72 : 0.38;
-    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = j.active ? 0.46 : 0.34;
+    ctx.fillStyle = '#0f172a';
     ctx.beginPath();
     ctx.arc(j.baseX, j.baseY, j.radius, 0, Math.PI * 2);
     ctx.fill();
-    ctx.globalAlpha = j.active ? 0.9 : 0.58;
-    ctx.fillStyle = '#7b54ff';
+    ctx.globalAlpha = j.active ? 0.32 : 0.22;
+    ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(j.knobX, j.knobY, j.radius * 0.42, 0, Math.PI * 2);
+    ctx.arc(j.baseX, j.baseY, 47, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = j.active ? 0.82 : 0.72;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(j.knobX, j.knobY, 19, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+  }
+
+
+  function drawTiledRect(x, y, w, h, baseColor, tintColor, imageAlpha) {
+    ctx.save();
+    ctx.fillStyle = baseColor;
+    ctx.fillRect(x, y, w, h);
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+    if (tileImageReady) {
+      ctx.globalAlpha = imageAlpha == null ? 0.45 : imageAlpha;
+      for (let tx = x; tx < x + w; tx += 256) {
+        for (let ty = y; ty < y + h; ty += 256) {
+          ctx.drawImage(tileImage, tx, ty, 256, 256);
+        }
+      }
+    } else {
+      ctx.globalAlpha = 0.18;
+      ctx.strokeStyle = '#111111';
+      ctx.lineWidth = 2;
+      for (let tx = x; tx < x + w; tx += 32) {
+        ctx.beginPath(); ctx.moveTo(tx, y); ctx.lineTo(tx, y + h); ctx.stroke();
+      }
+      for (let ty = y; ty < y + h; ty += 32) {
+        ctx.beginPath(); ctx.moveTo(x, ty); ctx.lineTo(x + w, ty); ctx.stroke();
+      }
+    }
+    if (tintColor) {
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = tintColor;
+      ctx.fillRect(x, y, w, h);
+    }
+    ctx.restore();
+  }
+
+  function drawBrainrotSlot(r, reserved) {
+    ctx.save();
+    ctx.globalAlpha = reserved ? 0.76 : 0.52;
+    roundRect(r.x, r.y, r.w, r.h, 22, reserved ? 'rgba(80,88,82,0.68)' : 'rgba(70,75,70,0.42)', 'rgba(30,34,30,0.36)', 2);
+    ctx.globalAlpha = 0.26;
+    roundRect(r.x + 12, r.y + 18, r.w - 24, r.h - 38, 18, 'rgba(170,255,150,0.20)', null, 0);
+    ctx.restore();
+  }
+
+  function drawReservedSlot(r) {
+    ctx.save();
+    ctx.globalAlpha = 0.78;
+    roundRect(r.x + 18, r.y + 42, r.w - 36, 54, 18, 'rgba(255,255,255,0.38)', 'rgba(255,255,255,0.48)', 2);
+    ctx.restore();
+    drawText('运输中', r.cx, r.y + 78, 16, '#ffffff', 'center', '900', true);
+  }
+
+  function drawShopItemCard(template, x, y, w, h, options) {
+    const mode = options && options.mode;
+    const displayPrice = options && options.price;
+    const cx = x + w / 2;
+    ctx.save();
+    ctx.globalAlpha = options && options.dim ? 0.55 : 1;
+    drawText(template.name, cx, y + 28, 18, '#ffffff', 'center', '900', true);
+    drawText('普通', cx, y + 49, 15, '#77ff4f', 'center', '900', true);
+    drawText('$' + money(template.incomePerSecond) + '/s', cx, y + 70, 17, '#fff465', 'center', '900', true);
+    const priceText = mode === 'home' ? ('$' + money(displayPrice || 0)) : ('$' + money(displayPrice || template.price));
+    drawText(priceText, cx, y + 94, 18, mode === 'home' ? '#9beaff' : '#9beaff', 'center', '900', true);
+    roundRect(x + 30, y + 108, 110, 110, 24, '#74ff56', 'rgba(40,120,24,0.38)', 2);
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    roundRect(x + 40, y + 116, 90, 92, 18, '#ffffff', null, 0);
+    ctx.restore();
+    drawBrainrot(template, cx, y + 163, 46, true);
+    drawText('$' + money(template.price), cx, y + 247, 24, '#a8ff73', 'center', '900', true);
+    ctx.restore();
+  }
+
+  function drawConveyorEmpty(r) {
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    roundRect(r.x + 22, r.y + 112, r.w - 44, 96, 22, '#111111', 'rgba(255,255,255,0.22)', 2);
+    ctx.restore();
+  }
+
+  function drawFigmaCoinAmount(x, y, label) {
+    drawText('$' + label, x, y, 24, '#a8ff73', 'center', '900', true);
   }
 
   function drawFloatingTexts() {
@@ -892,21 +954,24 @@
   function hitConveyorItem(x, y) {
     for (let i = game.conveyorItems.length - 1; i >= 0; i -= 1) {
       const item = game.conveyorItems[i];
-      if (item.empty || !item.templateId) continue;
-      if (item.y < layout.conveyor.y + 48 || item.y > layout.conveyor.y + layout.conveyor.h - 12) continue;
-      const radius = Math.max(42, item.hitSize * 0.68);
-      if (Math.hypot(x - item.x, y - item.y) <= radius) return item;
+      if (item.empty || !item.templateId || !item.rect) continue;
+      const r = item.rect;
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return item;
     }
     return null;
   }
 
+
   function hitSlot(x, y) {
     for (let i = 0; i < layout.slots.length; i += 1) {
       const r = layout.slots[i];
-      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return i;
+      const inSlot = x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+      const inItem = x >= r.itemX && x <= r.itemX + r.itemW && y >= r.itemY && y <= r.itemY + r.itemH;
+      if (inSlot || inItem) return i;
     }
     return -1;
   }
+
 
   function onSlotClick(index) {
     const slot = game.slots[index];
@@ -999,7 +1064,6 @@
     setupEvents();
     resize();
     requestAnimationFrame(gameLoop);
-    showToast('摇杆移动，点击传送带脑腐购买');
   }
 
   boot();

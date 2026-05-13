@@ -13,6 +13,7 @@
   function createDefaultState() {
     return {
       version: 1,
+      layoutVersion: null,
       coins: cfg.initialCoins,
       player: { x: 260, y: 320 },
       slots: Array.from({ length: cfg.maxSlots }, (_, index) => ({
@@ -45,6 +46,7 @@
 
     return {
       version: 1,
+      layoutVersion: raw.layoutVersion || null,
       coins,
       player,
       slots,
@@ -72,6 +74,7 @@
     try {
       const payload = {
         version: 1,
+        layoutVersion: state.layoutVersion || null,
         coins: state.coins,
         player: { x: state.player.x, y: state.player.y },
         slots: state.slots.map((slot, index) => ({
