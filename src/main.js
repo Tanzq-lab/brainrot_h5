@@ -58,6 +58,33 @@
   tileImage.onerror = () => { console.warn('[BrainrotUI] RobloxOverlayImg 加载失败，使用纯色兜底'); };
   tileImage.src = TILE_IMG_PATH;
 
+  const PLAYER_CHARACTER_SCALE = 0.3;
+  const PLAYER_WALK_SPEED = 9.5;
+  const PLAYER_WALK_SWING = 0.24;
+  const PLAYER_WALK_BOB = 4;
+  const PLAYER_ASSET_PATHS = {
+    head: 'assets/images/Player/head.png',
+    body: 'assets/images/Player/body.png',
+    arm: 'assets/images/Player/arm.png',
+    leg: 'assets/images/Player/leg.png'
+  };
+
+  function loadSpriteImage(src) {
+    const img = new Image();
+    img.ready = false;
+    img.onload = () => { img.ready = true; };
+    img.onerror = () => { console.warn('[PlayerSprite] 资源加载失败:', src); };
+    img.src = src;
+    return img;
+  }
+
+  const playerSprites = {
+    head: loadSpriteImage(PLAYER_ASSET_PATHS.head),
+    body: loadSpriteImage(PLAYER_ASSET_PATHS.body),
+    arm: loadSpriteImage(PLAYER_ASSET_PATHS.arm),
+    leg: loadSpriteImage(PLAYER_ASSET_PATHS.leg)
+  };
+
   let layout = null;
   let selectedDeleteSlot = null;
   let toastTimer = 0;
@@ -69,7 +96,7 @@
   const loaded = storage.loadState();
   const game = {
     coins: loaded.coins,
-    player: { x: loaded.player.x, y: loaded.player.y, r: 20 },
+    player: { x: loaded.player.x, y: loaded.player.y, r: 24, walkTime: 0, isMoving: false, moveX: 0, moveY: 0 },
     camera: { x: 0, y: 0 },
     slots: loaded.slots,
     conveyorItems: [],
@@ -423,10 +450,22 @@
     if (keyState.has('arrowright') || keyState.has('d')) dx += 1;
     if (keyState.has('arrowup') || keyState.has('w')) dy -= 1;
     if (keyState.has('arrowdown') || keyState.has('s')) dy += 1;
-    const len = Math.hypot(dx, dy);
-    if (len > 1) {
-      dx /= len;
-      dy /= len;
+
+    const inputLen = Math.hypot(dx, dy);
+    if (inputLen > 1) {
+      dx /= inputLen;
+      dy /= inputLen;
+    }
+
+    const isMoving = Math.hypot(dx, dy) > 0.02;
+    game.player.isMoving = isMoving;
+    game.player.moveX = isMoving ? dx : 0;
+    game.player.moveY = isMoving ? dy : 0;
+    if (isMoving) {
+      game.player.walkTime += dt * PLAYER_WALK_SPEED;
+    } else {
+      // 站立时保持静止，不做呼吸 / idle 动画。
+      game.player.walkTime = 0;
     }
 
     const speed = cfg.playerSpeed * dt;
@@ -643,9 +682,40 @@
 
   function drawPlayer() {
     const p = game.player;
+    const bodyImg = playerSprites.body;
+    const headImg = playerSprites.head;
+    const armImg = playerSprites.arm;
+    const legImg = playerSprites.leg;
+    const scale = PLAYER_CHARACTER_SCALE;
+
+    const bodyW = getSpriteWidth(bodyImg, 170) * scale;
+    const bodyH = getSpriteHeight(bodyImg, 165) * scale;
+    const headW = getSpriteWidth(headImg, 113) * scale;
+    const headH = getSpriteHeight(headImg, 114) * scale;
+    const armW = getSpriteWidth(armImg, 70) * scale;
+    const armH = getSpriteHeight(armImg, 169) * scale;
+    const legW = getSpriteWidth(legImg, 73) * scale;
+    const legH = getSpriteHeight(legImg, 167) * scale;
+
+    const phase = p.isMoving ? p.walkTime : 0;
+    const swing = p.isMoving ? Math.sin(phase) * PLAYER_WALK_SWING : 0;
+    const bob = p.isMoving ? Math.abs(Math.sin(phase)) * PLAYER_WALK_BOB : 0;
+
+    const bodyX = p.x - bodyW / 2;
+    const bodyY = p.y - bodyH / 2 - bob;
+    const bodyBottom = bodyY + bodyH;
+    const headX = p.x - headW / 2;
+    const headY = bodyY - headH + scale * 8;
+
+    const leftShoulderX = p.x - bodyW / 1.5 - scale * 10;
+    const rightShoulderX = p.x + bodyW / 1.5 + scale * 10;
+    const shoulderY = bodyY + scale * 0.7;
+    const leftHipX = p.x - bodyW * 0.22;
+    const rightHipX = p.x + bodyW * 0.22;
+    const hipY = bodyBottom - scale * 4;
+
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.save();
     ctx.globalAlpha = 0.38;
     ctx.fillStyle = '#8fd8ff';
     ctx.beginPath();
@@ -656,24 +726,46 @@
     ctx.stroke();
     ctx.restore();
 
-    ctx.shadowColor = 'rgba(0,0,0,0.45)';
-    ctx.shadowBlur = 10;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(0, 0, p.r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#43d7ff';
-    ctx.beginPath();
-    ctx.arc(-7, -5, 4, 0, Math.PI * 2);
-    ctx.arc(7, -5, 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#301048';
-    ctx.fillRect(-8, 6, 16, 4);
-    ctx.restore();
-    drawText('role name', p.x, p.y - 88, 22, '#d6f8ff', 'center', '900', true);
+    // 绘制顺序：腿和手臂在后，身体和头在前。所有部件使用同一个 scale，保持资源原比例。
+    drawSpritePart(legImg, leftHipX, hipY, legW, legH, 0.5, 0.04, swing, '#8ee637');
+    drawSpritePart(legImg, rightHipX, hipY, legW, legH, 0.5, 0.04, -swing, '#8ee637');
+    drawSpritePart(armImg, leftShoulderX, shoulderY, armW, armH, 0.5, 0.04, -swing * 0.75, '#ffeb25');
+    drawSpritePart(armImg, rightShoulderX, shoulderY, armW, armH, 0.5, 0.04, swing * 0.75, '#ffeb25');
+    drawSpriteRect(bodyImg, bodyX, bodyY, bodyW, bodyH, '#218cff');
+    drawSpriteRect(headImg, headX, headY, headW, headH, '#ffeb25');
+
+    drawText('Wickfin', p.x, headY - 12, 22, '#ffe85f', 'center', '900', true);
   }
 
+  function getSpriteWidth(img, fallback) {
+    return img && img.ready && img.naturalWidth ? img.naturalWidth : fallback;
+  }
+
+  function getSpriteHeight(img, fallback) {
+    return img && img.ready && img.naturalHeight ? img.naturalHeight : fallback;
+  }
+
+  function drawSpriteRect(img, x, y, w, h, fallbackColor) {
+    if (img && img.ready) {
+      ctx.drawImage(img, x, y, w, h);
+      return;
+    }
+    roundRect(x, y, w, h, 4, fallbackColor, 'rgba(0,0,0,0.45)', 2);
+  }
+
+  function drawSpritePart(img, pivotX, pivotY, w, h, pivotRatioX, pivotRatioY, angle, fallbackColor) {
+    ctx.save();
+    ctx.translate(pivotX, pivotY);
+    ctx.rotate(angle);
+    const drawX = -w * pivotRatioX;
+    const drawY = -h * pivotRatioY;
+    if (img && img.ready) {
+      ctx.drawImage(img, drawX, drawY, w, h);
+    } else {
+      roundRect(drawX, drawY, w, h, 4, fallbackColor, 'rgba(0,0,0,0.45)', 2);
+    }
+    ctx.restore();
+  }
 
   function drawHud() {
     drawJoystick();
