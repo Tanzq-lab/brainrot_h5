@@ -15,16 +15,17 @@
   const DPR_LIMIT = 2;
   const keyState = new Set();
   const CAMERA_LERP = 9.5;
+  const WORLD_CAMERA_ZOOM = 0.5;
   const FIGMA_LAYOUT_VERSION = 'figma_node_4_9_v2';
   const TILE_IMG_PATH = 'assets/images/RobloxOverlayImg.png';
 
   const FIGMA = {
-    world: { w: 2600, h: 1757 },
+    world: { w: 2900, h: 1757 },
     room: { x: 256, y: 438, w: 1563, h: 915 },
     shopFloor: { x: 309, y: 539, w: 1407, h: 730 },
     roomCorridor: { x: 1716, y: 749, w: 103, h: 322 },
     collection: { x: 1871, y: 648, w: 256, h: 512 },
-    conveyor: { x: 2344, y: 1, w: 256, h: 1756 },
+    conveyor: { x: 2644, y: 1, w: 256, h: 1756 },
     slots: [
       { x: 372, y: 585, w: 143, h: 163, itemX: 352, itemY: 455 },
       { x: 635, y: 585, w: 143, h: 163, itemX: 618, itemY: 455 },
@@ -38,11 +39,11 @@
       { x: 1425, y: 1174, w: 143, h: 163, itemX: 1408, itemY: 1051 }
     ],
     conveyorItems: [
-      { x: 2374, y: 12, w: 170, h: 279 },
-      { x: 2376, y: 321, w: 170, h: 279 },
-      { x: 2387, y: 679, w: 170, h: 279 },
-      { x: 2390, y: 1012, w: 170, h: 279 },
-      { x: 2390, y: 1396, w: 170, h: 279 }
+      { x: 2674, y: 12, w: 170, h: 279 },
+      { x: 2676, y: 321, w: 170, h: 279 },
+      { x: 2687, y: 679, w: 170, h: 279 },
+      { x: 2690, y: 1012, w: 170, h: 279 },
+      { x: 2690, y: 1396, w: 170, h: 279 }
     ],
     playerSpawn: { x: 986, y: 904 },
     hud: {
@@ -163,6 +164,7 @@
       w,
       h,
       scale: 1,
+      worldScale: WORLD_CAMERA_ZOOM,
       map: { x: 0, y: 0, w: FIGMA.world.w, h: FIGMA.world.h },
       room: FIGMA.room,
       floor: FIGMA.shopFloor,
@@ -233,19 +235,27 @@
     return !collidesWithWalls(x, y, r);
   }
 
+  function getCameraViewport() {
+    const zoom = layout && layout.worldScale ? layout.worldScale : 1;
+    return { w: layout.w / zoom, h: layout.h / zoom };
+  }
+
   function clampCamera(x, y) {
+    const view = getCameraViewport();
     return {
-      x: clamp(x, 0, Math.max(0, layout.map.w - layout.w)),
-      y: clamp(y, 0, Math.max(0, layout.map.h - layout.h))
+      x: clamp(x, 0, Math.max(0, layout.map.w - view.w)),
+      y: clamp(y, 0, Math.max(0, layout.map.h - view.h))
     };
   }
 
   function snapCameraToPlayer(force) {
     if (!layout) return;
-    const target = clampCamera(game.player.x - layout.w / 2, game.player.y - layout.h / 2);
+    const view = getCameraViewport();
+    const target = clampCamera(game.player.x - view.w / 2, game.player.y - view.h / 2);
     if (force === false) {
-      game.camera.x = clamp(game.camera.x, 0, Math.max(0, layout.map.w - layout.w));
-      game.camera.y = clamp(game.camera.y, 0, Math.max(0, layout.map.h - layout.h));
+      const view = getCameraViewport();
+      game.camera.x = clamp(game.camera.x, 0, Math.max(0, layout.map.w - view.w));
+      game.camera.y = clamp(game.camera.y, 0, Math.max(0, layout.map.h - view.h));
     } else {
       game.camera.x = target.x;
       game.camera.y = target.y;
@@ -253,7 +263,8 @@
   }
 
   function updateCamera(dt) {
-    const target = clampCamera(game.player.x - layout.w / 2, game.player.y - layout.h / 2);
+    const view = getCameraViewport();
+    const target = clampCamera(game.player.x - view.w / 2, game.player.y - view.h / 2);
     const t = 1 - Math.exp(-CAMERA_LERP * dt);
     game.camera.x = lerp(game.camera.x, target.x, t);
     game.camera.y = lerp(game.camera.y, target.y, t);
@@ -514,10 +525,12 @@
     const h = layout.h;
     ctx.clearRect(0, 0, w, h);
     ctx.save();
+    ctx.scale(layout.worldScale, layout.worldScale);
     ctx.translate(-game.camera.x, -game.camera.y);
     drawWorldBackground();
     drawHomeBase();
     drawMidArea();
+    drawPurchaseHint();
     drawConveyor();
     drawSlots();
     drawPurchaseAnimations();
@@ -576,6 +589,16 @@
   function drawMidArea() {
     const m = layout.mid;
     drawTiledRect(m.x, m.y, m.w, m.h, '#b8ff80', 'rgba(184,255,128,0.10)', 0.90);
+    drawFigmaText('收集区域', m.x + m.w / 2, m.y + m.h / 2 + 16, 40, '#ffffff', 'center', '700');
+  }
+
+  function drawPurchaseHint() {
+    const m = layout.mid;
+    const conv = layout.conveyor;
+    const gapLeft = m.x + m.w;
+    const gapRight = conv.x;
+    if (gapRight - gapLeft < 80) return;
+    drawFigmaText('点击任何大脑来购买 >>', (gapLeft + gapRight) / 2, m.y + m.h / 2 + 14, 34, '#ffffff', 'center', '700');
   }
 
 
@@ -658,21 +681,8 @@
   }
 
   function drawCoinHud() {
-    const hud = layout.coinHud;
-    const x = hud.x;
-    const y = hud.y;
-    roundRect(x, y, hud.w, hud.h, 31, 'rgba(24,32,51,0.94)', 'rgba(58,70,99,0.94)', 2);
-    ctx.save();
-    ctx.fillStyle = '#ffd84d';
-    ctx.beginPath();
-    ctx.arc(x + 39, y + hud.h / 2, 19, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#d19b12';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    drawText('$', x + 39, y + hud.h / 2 + 8, 22, '#5e3a00', 'center', '900');
-    ctx.restore();
-    drawText('$ ' + money(game.coins), x + 70, y + 39, 28, '#ffffff', 'left', '900');
+    const label = '$' + money(game.coins);
+    drawText(label, layout.w - 28, layout.h - 28, 20, '#8fff59', 'right', '900', true);
   }
 
 
@@ -730,7 +740,7 @@
     ctx.globalAlpha = reserved ? 0.78 : 1;
     roundRect(cardX, cardY, cardW, cardH, 24, 'rgba(107,255,89,0.95)', null, 0);
     ctx.restore();
-    const label = coins > 0.5 ? ('$' + money(coins)) : '$价格';
+    const label = coins > 0.5 ? ('$' + money(coins)) : '$0';
     drawFigmaText(label, r.x + r.w / 2, r.y + r.h - 8, 28, '#8fff59', 'center', '700');
   }
 
@@ -782,7 +792,7 @@
       'occupied/reserved: ' + occupied + '/10',
       'player: ' + Math.floor(game.player.x) + ',' + Math.floor(game.player.y),
       'camera: ' + Math.floor(game.camera.x) + ',' + Math.floor(game.camera.y),
-      'map: ' + Math.floor(layout.map.w) + 'x' + Math.floor(layout.map.h),
+      'map: ' + Math.floor(layout.map.w) + 'x' + Math.floor(layout.map.h) + ' zoom:' + layout.worldScale,
       'animations: ' + game.purchaseAnimations.length,
       'nextTpl: ' + game.conveyorNextTemplateIndex,
       'storageKey: ' + cfg.storageKey
@@ -890,7 +900,8 @@
   }
 
   function screenToWorld(x, y) {
-    return { x: x + game.camera.x, y: y + game.camera.y };
+    const zoom = layout && layout.worldScale ? layout.worldScale : 1;
+    return { x: x / zoom + game.camera.x, y: y / zoom + game.camera.y };
   }
 
   function onPointerDown(e) {
