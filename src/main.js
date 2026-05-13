@@ -85,6 +85,16 @@
     leg: loadSpriteImage(PLAYER_ASSET_PATHS.leg)
   };
 
+  const brainrotSprites = new Map();
+
+  function getBrainrotSprite(template) {
+    if (!template || !template.imageSrc) return null;
+    if (!brainrotSprites.has(template.id)) {
+      brainrotSprites.set(template.id, loadSpriteImage(template.imageSrc));
+    }
+    return brainrotSprites.get(template.id);
+  }
+
   let layout = null;
   let selectedDeleteSlot = null;
   let toastTimer = 0;
@@ -139,6 +149,24 @@
 
   function getTemplate(templateId) {
     return cfg.brainrots.find((b) => b.id === templateId) || cfg.brainrots[0];
+  }
+
+  function getConveyorBrainrotIds() {
+    if (Array.isArray(cfg.conveyorBrainrotIds) && cfg.conveyorBrainrotIds.length) {
+      return cfg.conveyorBrainrotIds.slice();
+    }
+    return cfg.brainrots
+      .filter((item) => item && item.id && item.id !== cfg.starterTemplateId)
+      .map((item) => item.id);
+  }
+
+  function getQualityColor(quality) {
+    switch (quality) {
+      case '传说': return '#ffd86a';
+      case '史诗': return '#ff72df';
+      case '稀有': return '#5ee7ff';
+      default: return '#b6ff64';
+    }
   }
 
   function showToast(text) {
@@ -318,11 +346,12 @@
 
     if (game.conveyorItems.length < cfg.conveyorVisibleCount) {
       game.conveyorItems = [];
+      const conveyorIds = getConveyorBrainrotIds();
       for (let i = 0; i < cfg.conveyorVisibleCount; i += 1) {
-        const template = cfg.brainrots[i % cfg.brainrots.length];
+        const templateId = conveyorIds.length ? conveyorIds[i % conveyorIds.length] : cfg.brainrots[i % cfg.brainrots.length].id;
         game.conveyorItems.push({
           id: 'cv_' + i,
-          templateId: template.id,
+          templateId,
           empty: false,
           yRatio: defaults[i],
           x: 0,
@@ -331,7 +360,7 @@
           rect: null
         });
       }
-      game.conveyorNextTemplateIndex = cfg.conveyorVisibleCount % cfg.brainrots.length;
+      game.conveyorNextTemplateIndex = conveyorIds.length ? cfg.conveyorVisibleCount % conveyorIds.length : 0;
     }
   }
 
@@ -368,8 +397,10 @@
   }
 
   function takeNextTemplateId() {
-    const id = cfg.brainrots[game.conveyorNextTemplateIndex % cfg.brainrots.length].id;
-    game.conveyorNextTemplateIndex = (game.conveyorNextTemplateIndex + 1) % cfg.brainrots.length;
+    const conveyorIds = getConveyorBrainrotIds();
+    if (!conveyorIds.length) return cfg.brainrots[0].id;
+    const id = conveyorIds[game.conveyorNextTemplateIndex % conveyorIds.length];
+    game.conveyorNextTemplateIndex = (game.conveyorNextTemplateIndex + 1) % conveyorIds.length;
     return id;
   }
 
@@ -637,7 +668,7 @@
     const gapLeft = m.x + m.w;
     const gapRight = conv.x;
     if (gapRight - gapLeft < 80) return;
-    drawFigmaText('点击任何大脑来购买 >>', (gapLeft + gapRight) / 2, m.y + m.h / 2 + 14, 34, '#ffffff', 'center', '700');
+    drawFigmaText('点击脑腐购买 >>', (gapLeft + gapRight) / 2, m.y + m.h / 2 + 14, 34, '#ffffff', 'center', '700');
   }
 
 
@@ -851,7 +882,7 @@
     ctx.globalAlpha = options && options.dim ? 0.55 : 1;
     // Figma ShopItem: 170×279，文本均为居中阴影文字，不绘制卡片底座。
     drawFigmaText(template.name, x + 87, y + 20, 20, '#ffffff', 'center', '700');
-    drawFigmaText(quality, x + 85, y + 48, 18, '#99ff40', 'center', '700');
+    drawFigmaText(quality, x + 85, y + 48, 18, getQualityColor(quality), 'center', '700');
     drawFigmaText('$' + money(template.incomePerSecond) + '/s', x + 85, y + 76, 18, '#ffe538', 'center', '700');
     drawFigmaText('$' + money(price), x + 83, y + 109, 18, '#93d2f1', 'center', '700');
     drawBrainrot(template, x + 51 + 39, y + 146 + 36, 36, true);
@@ -881,7 +912,7 @@
     const occupied = game.slots.filter((s) => s.templateId || s.reserved).length;
     debugPanel.textContent = [
       'coins: ' + Math.floor(game.coins),
-      'occupied/reserved: ' + occupied + '/10',
+      'occupied/reserved: ' + occupied + '/' + cfg.maxSlots,
       'player: ' + Math.floor(game.player.x) + ',' + Math.floor(game.player.y),
       'camera: ' + Math.floor(game.camera.x) + ',' + Math.floor(game.camera.y),
       'map: ' + Math.floor(layout.map.w) + 'x' + Math.floor(layout.map.h) + ' zoom:' + layout.worldScale,
@@ -892,6 +923,24 @@
   }
 
   function drawBrainrot(template, x, y, r, showFace) {
+    const img = getBrainrotSprite(template);
+    if (img && img.ready) {
+      const rawW = getSpriteWidth(img, 256);
+      const rawH = getSpriteHeight(img, 256);
+      const maxSide = Math.max(rawW, rawH, 1);
+      const box = r * (template.spriteScale || 3.15);
+      const w = box * rawW / maxSide;
+      const h = box * rawH / maxSide;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.shadowColor = template.color || 'rgba(255,255,255,0.9)';
+      ctx.shadowBlur = Math.max(10, r * 0.34);
+      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      ctx.restore();
+      return;
+    }
+
     ctx.save();
     ctx.translate(x, y);
     ctx.shadowColor = template.color;

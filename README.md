@@ -1,6 +1,6 @@
 # 脑腐传送带 H5 MVP
 
-这是一个从 0 到 1 的 H5 横屏 2D 脑腐玩法原型项目。
+这是一个 H5 横屏 2D 脑腐传送带经营原型项目。
 
 ## 运行方式
 
@@ -9,7 +9,7 @@
 建议用本地服务器运行，避免部分浏览器对本地文件的限制：
 
 ```bash
-cd brainrot_h5_mvp
+cd brainrot_h5-main
 python -m http.server 5173
 ```
 
@@ -28,7 +28,9 @@ http://127.0.0.1:5173/
 - 家里 10 个格子，上 5 个、下 5 个
 - 右侧传送带连续平滑滚动
 - 一次可见 5 个传送带位置
-- 10 个脑腐对象固定循环
+- 12 个脑腐角色内容配置
+- 小香蕉初始白送
+- 破香蕉开始进入传送带购买循环
 - 点击传送带脑腐购买
 - 金币不足提示
 - 格子已满提示
@@ -45,7 +47,7 @@ http://127.0.0.1:5173/
 - 本地存档
 - 不做离线收益
 
-## 配置位置
+## 当前角色配置
 
 核心配置位于：
 
@@ -53,13 +55,20 @@ http://127.0.0.1:5173/
 src/config.js
 ```
 
-可以修改：
-
-- 初始金币
-- 传送带速度
-- 玩家移动速度
-- 收钱范围
-- 10 个脑腐的名称、价格、每秒产钱、颜色
+| 顺位 | 角色名 | 稀有度 | 收益 | 价格 | 回本时间 | 设计定位 | 图片 |
+| --- | --- | --- | ---: | ---: | ---: | --- | --- |
+| 1 | 小香蕉 | 普通 | $1/s | $0 | 0 秒 | 初始白送 | assets/images/brainrots/little_banana.png |
+| 2 | 破香蕉 | 普通 | $2/s | $25 | 12.5 秒 | 新手第一次购买 | assets/images/brainrots/broken_banana.png |
+| 3 | 樱桃小三 | 普通 | $5/s | $180 | 36 秒 | 快速爽点 | assets/images/brainrots/cherry_mistress.png |
+| 4 | 焦哥 | 普通 | $9/s | $500 | 56 秒 | 前期稳定过渡 | assets/images/brainrots/jiao_bro.png |
+| 5 | 小柠檬 | 普通 | $15/s | $1,200 | 80 秒 | 普通阶段目标 | assets/images/brainrots/little_lemon.png |
+| 6 | 小猕猴桃 | 稀有 | $28/s | $2,800 | 100 秒 | 第一个稀有 | assets/images/brainrots/little_kiwi.png |
+| 7 | 菠萝保安 | 稀有 | $45/s | $5,500 | 122 秒 | 中期主力 | assets/images/brainrots/pineapple_guard.png |
+| 8 | 草莓闺蜜 | 稀有 | $72/s | $9,000 | 125 秒 | 稀有阶段核心 | assets/images/brainrots/strawberry_bff.png |
+| 9 | 猕猴桃医生 | 稀有 | $110/s | $15,000 | 136 秒 | 中后期加速 | assets/images/brainrots/kiwi_doctor.png |
+| 10 | 葡萄小三 | 史诗 | $180/s | $30,000 | 167 秒 | 第一个大目标 | assets/images/brainrots/grape_mistress.png |
+| 11 | 榴莲小姐 | 史诗 | $310/s | $60,000 | 194 秒 | 后期稳定追求 | assets/images/brainrots/durian_lady.png |
+| 12 | 香蕉女王 | 传说 | $560/s | $125,000 | 223 秒 | 当前版本终局目标 | assets/images/brainrots/banana_queen.png |
 
 ## 调试操作
 
@@ -74,7 +83,6 @@ src/config.js
 - 锁门
 - 武器
 - 重生
-- 稀有度
 - 随机刷新概率
 - 离线收益
 - 图鉴

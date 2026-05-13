@@ -10,20 +10,41 @@
     };
   }
 
+  function getConveyorBrainrotIds() {
+    if (Array.isArray(cfg.conveyorBrainrotIds) && cfg.conveyorBrainrotIds.length) {
+      return cfg.conveyorBrainrotIds.slice();
+    }
+    return cfg.brainrots
+      .filter((item) => item && item.id && item.id !== cfg.starterTemplateId)
+      .map((item) => item.id);
+  }
+
+  function createDefaultSlots() {
+    const slots = Array.from({ length: cfg.maxSlots }, (_, index) => ({
+      index,
+      reserved: false,
+      templateId: null,
+      coins: 0
+    }));
+
+    const starterIndex = Number.isFinite(cfg.starterSlotIndex) ? cfg.starterSlotIndex : 0;
+    if (cfg.starterTemplateId && slots[starterIndex]) {
+      slots[starterIndex].templateId = cfg.starterTemplateId;
+    }
+
+    return slots;
+  }
+
   function createDefaultState() {
+    const conveyorIds = getConveyorBrainrotIds();
     return {
       version: 1,
       layoutVersion: null,
       coins: cfg.initialCoins,
       player: { x: 260, y: 320 },
-      slots: Array.from({ length: cfg.maxSlots }, (_, index) => ({
-        index,
-        reserved: false,
-        templateId: null,
-        coins: 0
-      })),
+      slots: createDefaultSlots(),
       conveyor: {
-        nextTemplateIndex: cfg.conveyorVisibleCount % cfg.brainrots.length,
+        nextTemplateIndex: conveyorIds.length ? cfg.conveyorVisibleCount % conveyorIds.length : 0,
         items: []
       },
       savedAt: Date.now()
@@ -40,8 +61,10 @@
       : fallback.player;
 
     const slots = Array.from({ length: cfg.maxSlots }, (_, index) => cloneSlot(raw.slots && raw.slots[index], index));
+    const conveyorIds = getConveyorBrainrotIds();
+    const cycleLength = Math.max(1, conveyorIds.length || cfg.brainrots.length);
     const nextTemplateIndex = raw.conveyor && Number.isFinite(raw.conveyor.nextTemplateIndex)
-      ? Math.max(0, Math.floor(raw.conveyor.nextTemplateIndex)) % cfg.brainrots.length
+      ? Math.max(0, Math.floor(raw.conveyor.nextTemplateIndex)) % cycleLength
       : fallback.conveyor.nextTemplateIndex;
 
     return {
