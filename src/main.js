@@ -11,12 +11,17 @@
   const deleteCancelBtn = document.getElementById('delete-cancel');
   const deleteConfirmBtn = document.getElementById('delete-confirm');
   const debugPanel = document.getElementById('debug-panel');
+  const bootOverlayEl = document.getElementById('boot-overlay');
+  const bootProgressFillEl = document.getElementById('boot-progress-fill');
+  const bootProgressLabelEl = document.getElementById('boot-progress-label');
 
   const DPR_LIMIT = 2;
   const keyState = new Set();
   const CAMERA_LERP = 9.5;
   const WORLD_CAMERA_ZOOM = 0.5;
   const FIGMA_LAYOUT_VERSION = 'figma_node_4_9_v2';
+  const BOOT_SPLASH_DURATION = 1500;
+  const MIN_NOTICE_TIME = 1000;
   const TILE_IMG_PATH = 'assets/images/RobloxOverlayImg.png';
   const SLOT_COLLECT_COOLDOWN_SECONDS = Number.isFinite(cfg.collectCooldownSeconds)
     ? Math.max(0, Number(cfg.collectCooldownSeconds))
@@ -185,6 +190,81 @@
       radius: 58
     }
   };
+
+  const BOOT_IMAGE_PATHS = [
+    'assets/images/boot/splash-landscape.png',
+    'assets/images/boot/splash-portrait.png',
+    'assets/images/boot/age-rating.png',
+    TILE_IMG_PATH,
+    PLAYER_ASSET_PATHS.head,
+    PLAYER_ASSET_PATHS.body,
+    PLAYER_ASSET_PATHS.arm,
+    PLAYER_ASSET_PATHS.leg,
+    ...cfg.brainrots.map((brainrot) => brainrot && brainrot.imageSrc).filter(Boolean)
+  ];
+
+  function delay(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  function setBootProgress(value) {
+    const progress = clamp(Number.isFinite(value) ? value : 0, 0, 1);
+    if (bootProgressFillEl) bootProgressFillEl.style.width = (progress * 100).toFixed(1) + '%';
+    if (bootProgressLabelEl) bootProgressLabelEl.textContent = '加载中 ' + Math.round(progress * 100) + '%';
+  }
+
+  function finishBootOverlay() {
+    if (!bootOverlayEl) {
+      document.documentElement.classList.remove('booting');
+      return;
+    }
+    bootOverlayEl.classList.add('is-hidden');
+    document.documentElement.classList.remove('booting');
+    window.setTimeout(() => {
+      bootOverlayEl.setAttribute('aria-hidden', 'true');
+    }, 300);
+  }
+
+  function preloadBootImage(src) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      img.onload = done;
+      img.onerror = () => {
+        console.warn('[BootOverlay] image failed:', src);
+        done();
+      };
+      img.src = src;
+      if (img.complete) done();
+    });
+  }
+
+  async function runBootOverlay() {
+    const startedAt = Number(window.__brainrotBootNoticeAt) || Date.now();
+    const imagePaths = Array.from(new Set(BOOT_IMAGE_PATHS));
+    let loadedCount = 0;
+    setBootProgress(0);
+
+    await Promise.all(imagePaths.map(async (src) => {
+      await preloadBootImage(src);
+      loadedCount += 1;
+      setBootProgress(loadedCount / imagePaths.length);
+    }));
+
+    const elapsed = Date.now() - startedAt;
+    const minVisibleTime = Math.max(BOOT_SPLASH_DURATION, MIN_NOTICE_TIME);
+    if (elapsed < minVisibleTime) {
+      await delay(minVisibleTime - elapsed);
+    }
+
+    setBootProgress(1);
+    finishBootOverlay();
+  }
 
   function clamp(v, min, max) {
     if (max < min) return min;
@@ -1931,8 +2011,14 @@
     initConveyor();
     setupEvents();
     resize();
+    lastFrameTime = performance.now();
     requestAnimationFrame(gameLoop);
   }
 
-  boot();
+  runBootOverlay()
+    .catch((err) => {
+      console.warn('[BootOverlay] fallback to direct boot', err);
+      finishBootOverlay();
+    })
+    .finally(boot);
 })();

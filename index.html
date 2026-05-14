@@ -6,14 +6,36 @@
   <meta name="screen-orientation" content="landscape" />
   <title>脑腐传送带 MVP</title>
   <link rel="stylesheet" href="src/styles.css" />
+  <script>
+    window.__brainrotBootNoticeAt = Date.now();
+    document.documentElement.classList.add('booting');
+  </script>
 </head>
 <body>
   <div id="game-shell">
+    <div id="boot-overlay" role="status" aria-live="polite" aria-label="游戏启动中">
+      <div class="boot-splash boot-splash-landscape" aria-hidden="true"></div>
+      <div class="boot-splash boot-splash-portrait" aria-hidden="true"></div>
+      <img class="boot-age-rating" src="assets/images/boot/age-rating.png" alt="适龄提示 8+" />
+      <div class="boot-bottom">
+        <div class="boot-notice-title">健康游戏忠告</div>
+        <div class="boot-notice-text">
+          <p>抵制不良游戏，拒绝盗版游戏。</p>
+          <p>注意自我保护，谨防受骗上当。</p>
+          <p>适度游戏益脑，沉迷游戏伤身。</p>
+          <p>合理安排时间，享受健康生活。</p>
+        </div>
+        <div class="boot-progress" aria-hidden="true">
+          <div id="boot-progress-fill" class="boot-progress-fill"></div>
+        </div>
+        <div id="boot-progress-label" class="boot-progress-label">加载中 0%</div>
+      </div>
+    </div>
     <canvas id="game"></canvas>
     <div id="rotate-tip">
       <div class="rotate-card">
         <div class="rotate-title">请横屏游玩</div>
-        <div class="rotate-subtitle">本版本是横屏 2D H5 脑腐玩法原型</div>
+        <div class="rotate-subtitle">当前版本是横屏 2D H5 脑腐玩法原型</div>
       </div>
     </div>
     <div id="toast" aria-live="polite"></div>
