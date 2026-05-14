@@ -76,22 +76,40 @@
 
 
   const FAKE_PLAYER_CONFIG = {
-    spawnInterval: 60,
-    lifeSeconds: 180,
-    exitTimeout: 15,
-    maxCount: 5,
-    arriveDistance: 18,
+    firstSpawnDelayMin: 8,
+    firstSpawnDelayMax: 30,
+    spawnIntervalMin: 45,
+    spawnIntervalMax: 75,
+    lifeSecondsMin: 150,
+    lifeSecondsMax: 240,
+    exitTimeout: 12,
+    maxCount: 4,
+    arriveDistance: 34,
+    interestArriveDistance: 52,
+    localArriveDistance: 24,
     slotTourMin: 1,
     slotTourMax: 3,
-    slotActionMin: 1.2,
-    slotActionMax: 2.8,
+    slotActionMin: 1.0,
+    slotActionMax: 2.4,
+    conveyorActionMin: 0.8,
+    conveyorActionMax: 1.5,
+    collectActionMin: 0.6,
+    collectActionMax: 1.2,
     pauseMin: 0.45,
     pauseMax: 1.2,
     wanderPauseMin: 0.35,
     wanderPauseMax: 0.85,
-    orbitRadiusMin: 36,
-    orbitRadiusMax: 68,
-    entranceJitter: 18
+    wanderStepsMin: 1,
+    wanderStepsMax: 2,
+    orbitRadiusMin: 42,
+    orbitRadiusMax: 74,
+    spawnAreaJitter: 26,
+    behaviorWeights: {
+      wander: 30,
+      buyBrainrot: 30,
+      fakeCollectMoney: 20,
+      visitSlot: 20
+    }
   };
 
   function loadSpriteImage(src) {
@@ -150,6 +168,7 @@
     fakePlayers: [],
     fakePlayerNextId: 1,
     fakePlayerSpawnTimer: 0,
+    fakePlayerNextSpawnIn: 0,
     fakePlayersInitialized: false,
     layoutVersion: loaded.layoutVersion || null,
     joystick: {
@@ -591,14 +610,15 @@
     if (!layout) return;
     if (!game.fakePlayersInitialized) {
       game.fakePlayersInitialized = true;
-      spawnFakePlayer();
       game.fakePlayerSpawnTimer = 0;
+      game.fakePlayerNextSpawnIn = randomRange(FAKE_PLAYER_CONFIG.firstSpawnDelayMin, FAKE_PLAYER_CONFIG.firstSpawnDelayMax);
     }
 
     game.fakePlayerSpawnTimer += dt;
-    while (game.fakePlayerSpawnTimer >= FAKE_PLAYER_CONFIG.spawnInterval) {
-      game.fakePlayerSpawnTimer -= FAKE_PLAYER_CONFIG.spawnInterval;
-      spawnFakePlayer();
+    if (game.fakePlayerSpawnTimer >= game.fakePlayerNextSpawnIn) {
+      game.fakePlayerSpawnTimer = 0;
+      if (game.fakePlayers.length < FAKE_PLAYER_CONFIG.maxCount) spawnFakePlayer();
+      game.fakePlayerNextSpawnIn = randomRange(FAKE_PLAYER_CONFIG.spawnIntervalMin, FAKE_PLAYER_CONFIG.spawnIntervalMax);
     }
 
     for (let i = game.fakePlayers.length - 1; i >= 0; i -= 1) {
@@ -610,47 +630,55 @@
 
   function spawnFakePlayer() {
     if (!layout || game.fakePlayers.length >= FAKE_PLAYER_CONFIG.maxCount) return;
-    const point = getEntrancePoint(FAKE_PLAYER_CONFIG.entranceJitter);
+    const spawn = getRandomFakeSpawnPoint();
     const id = game.fakePlayerNextId++;
     const fake = {
       id,
       name: 'Noob' + id,
-      x: point.x,
-      y: point.y,
+      x: spawn.point.x,
+      y: spawn.point.y,
       r: game.player.r,
       walkTime: 0,
       isMoving: false,
       moveX: 0,
       moveY: 0,
       age: 0,
+      lifeSeconds: randomRange(FAKE_PLAYER_CONFIG.lifeSecondsMin, FAKE_PLAYER_CONFIG.lifeSecondsMax),
       state: 'choose',
       stateTime: 0,
-      targetX: point.x,
-      targetY: point.y,
+      targetX: spawn.point.x,
+      targetY: spawn.point.y,
+      path: [],
       slotVisitsLeft: 0,
+      wanderStepsLeft: 0,
       lastSlotIndex: -1,
-      interestX: point.x,
-      interestY: point.y,
+      lastMajorBehavior: null,
+      majorBehavior: null,
+      spawnAreaId: spawn.area.id,
+      spawnArea: spawn.area,
+      interestX: spawn.point.x,
+      interestY: spawn.point.y,
       actionKind: 'pause',
       actionDuration: 0,
       actionElapsed: 0,
       orbitAngle: randomRange(0, Math.PI * 2),
       orbitRadius: randomRange(FAKE_PLAYER_CONFIG.orbitRadiusMin, FAKE_PLAYER_CONFIG.orbitRadiusMax),
       orbitDir: chance(0.5) ? 1 : -1,
-      orbitSpeed: randomRange(1.8, 2.6),
+      orbitSpeed: randomRange(1.45, 2.25),
       paceAxis: chance(0.5) ? 1 : -1,
       localTargetTimer: 0,
-      exitTimer: 0
+      exitTimer: 0,
+      postConveyorNext: null
     };
     game.fakePlayers.push(fake);
-    startSlotTour(fake);
+    chooseFakeBehavior(fake);
   }
 
   function updateFakePlayer(fake, dt) {
     fake.age += dt;
     fake.stateTime += dt;
 
-    if (fake.age >= FAKE_PLAYER_CONFIG.lifeSeconds && fake.state !== 'exit' && fake.state !== 'removed') {
+    if (fake.age >= fake.lifeSeconds && fake.state !== 'exit' && fake.state !== 'removed') {
       startFakeExit(fake);
     }
 
@@ -664,8 +692,17 @@
       case 'wander':
         updateFakeWander(fake, dt);
         break;
-      case 'circleInterest':
-        updateFakeCircleInterest(fake, dt);
+      case 'moveConveyor':
+        updateFakeMoveToConveyor(fake, dt);
+        break;
+      case 'conveyorAction':
+        updateFakeConveyorAction(fake, dt);
+        break;
+      case 'moveCollect':
+        updateFakeMoveToCollect(fake, dt);
+        break;
+      case 'collectAction':
+        updateFakeCollectAction(fake, dt);
         break;
       case 'pause':
         updateFakePause(fake, dt);
@@ -681,41 +718,54 @@
   }
 
   function startFakeExit(fake) {
-    const point = getEntrancePoint(0);
+    const point = getFakeExitPoint(fake);
     fake.state = 'exit';
     fake.stateTime = 0;
     fake.exitTimer = 0;
-    fake.targetX = point.x;
-    fake.targetY = point.y;
+    setFakePath(fake, buildFakeRoute(fake, point));
   }
 
   function updateFakeExit(fake, dt) {
     fake.exitTimer += dt;
-    const arrived = moveFakeToward(fake, fake.targetX, fake.targetY, dt, FAKE_PLAYER_CONFIG.arriveDistance);
+    const arrived = moveFakeAlongPath(fake, dt, FAKE_PLAYER_CONFIG.arriveDistance);
     if (arrived || fake.exitTimer >= FAKE_PLAYER_CONFIG.exitTimeout) {
       fake.state = 'removed';
       fake.isMoving = false;
+      fake.path = [];
     }
   }
 
   function chooseFakeBehavior(fake) {
-    if (fake.age >= FAKE_PLAYER_CONFIG.lifeSeconds) return startFakeExit(fake);
-    const roll = Math.random();
-    if (roll < 0.45) {
-      startSlotTour(fake);
-    } else if (roll < 0.70) {
-      startFakeWander(fake);
-    } else if (roll < 0.90) {
-      startFakeCircleInterest(fake);
-    } else {
-      startFakePause(fake, randomRange(FAKE_PLAYER_CONFIG.pauseMin, FAKE_PLAYER_CONFIG.pauseMax));
-    }
+    if (fake.age >= fake.lifeSeconds) return startFakeExit(fake);
+    const behavior = pickFakeMajorBehavior(fake.lastMajorBehavior);
+    fake.lastMajorBehavior = behavior;
+    fake.majorBehavior = behavior;
+    if (behavior === 'wander') return startFakeWander(fake);
+    if (behavior === 'buyBrainrot') return startFakeConveyorTrip(fake);
+    if (behavior === 'fakeCollectMoney') return startFakeCollectMoney(fake);
+    return startSlotTour(fake, randomInt(FAKE_PLAYER_CONFIG.slotTourMin, FAKE_PLAYER_CONFIG.slotTourMax));
   }
 
-  function startSlotTour(fake) {
+  function pickFakeMajorBehavior(previous) {
+    const weights = FAKE_PLAYER_CONFIG.behaviorWeights;
+    const entries = Object.keys(weights)
+      .filter((key) => key !== previous || Object.keys(weights).length <= 1)
+      .map((key) => ({ key, weight: Math.max(0, Number(weights[key]) || 0) }))
+      .filter((entry) => entry.weight > 0);
+    const pool = entries.length ? entries : Object.keys(weights).map((key) => ({ key, weight: Math.max(1, Number(weights[key]) || 1) }));
+    const total = pool.reduce((sum, entry) => sum + entry.weight, 0);
+    let roll = Math.random() * total;
+    for (const entry of pool) {
+      roll -= entry.weight;
+      if (roll <= 0) return entry.key;
+    }
+    return pool[pool.length - 1].key;
+  }
+
+  function startSlotTour(fake, visits) {
     fake.state = 'moveSlot';
     fake.stateTime = 0;
-    fake.slotVisitsLeft = randomInt(FAKE_PLAYER_CONFIG.slotTourMin, FAKE_PLAYER_CONFIG.slotTourMax);
+    fake.slotVisitsLeft = Math.max(1, visits || randomInt(FAKE_PLAYER_CONFIG.slotTourMin, FAKE_PLAYER_CONFIG.slotTourMax));
     pickNextFakeSlotTarget(fake);
   }
 
@@ -728,10 +778,11 @@
     fake.targetY = point.y;
     fake.state = 'moveSlot';
     fake.stateTime = 0;
+    setFakePath(fake, buildFakeRoute(fake, point));
   }
 
   function updateFakeMoveToSlot(fake, dt) {
-    const arrived = moveFakeToward(fake, fake.targetX, fake.targetY, dt, FAKE_PLAYER_CONFIG.arriveDistance);
+    const arrived = moveFakeAlongPath(fake, dt, FAKE_PLAYER_CONFIG.interestArriveDistance);
     if (arrived || fake.stateTime >= 8) startFakeSlotAction(fake);
   }
 
@@ -741,11 +792,11 @@
     fake.actionElapsed = 0;
     fake.actionDuration = randomRange(FAKE_PLAYER_CONFIG.slotActionMin, FAKE_PLAYER_CONFIG.slotActionMax);
     const roll = Math.random();
-    fake.actionKind = roll < 0.38 ? 'orbit' : roll < 0.68 ? 'pace' : roll < 0.88 ? 'jitter' : 'pause';
+    fake.actionKind = roll < 0.44 ? 'orbit' : roll < 0.78 ? 'pace' : roll < 0.92 ? 'localWander' : 'pause';
     fake.orbitAngle = randomRange(0, Math.PI * 2);
     fake.orbitRadius = randomRange(FAKE_PLAYER_CONFIG.orbitRadiusMin, FAKE_PLAYER_CONFIG.orbitRadiusMax);
     fake.orbitDir = chance(0.5) ? 1 : -1;
-    fake.orbitSpeed = randomRange(1.8, 2.6);
+    fake.orbitSpeed = randomRange(1.45, 2.25);
     fake.paceAxis = chance(0.5) ? 1 : -1;
     fake.localTargetTimer = 0;
   }
@@ -764,30 +815,72 @@
     }
   }
 
-  function startFakeCircleInterest(fake) {
-    const point = getRandomSlotInterestPoint(fake.lastSlotIndex);
-    fake.lastSlotIndex = point.index;
+  function startFakeConveyorTrip(fake) {
+    const point = getRandomConveyorInterestPoint();
+    fake.state = 'moveConveyor';
+    fake.stateTime = 0;
     fake.interestX = point.interestX;
     fake.interestY = point.interestY;
     fake.targetX = point.x;
     fake.targetY = point.y;
-    fake.state = 'circleInterest';
+    fake.postConveyorNext = chance(0.58) ? 'slot' : 'wander';
+    setFakePath(fake, buildFakeRoute(fake, point));
+  }
+
+  function updateFakeMoveToConveyor(fake, dt) {
+    const arrived = moveFakeAlongPath(fake, dt, FAKE_PLAYER_CONFIG.interestArriveDistance);
+    if (arrived || fake.stateTime >= 10) startFakeConveyorAction(fake);
+  }
+
+  function startFakeConveyorAction(fake) {
+    fake.state = 'conveyorAction';
     fake.stateTime = 0;
     fake.actionElapsed = 0;
-    fake.actionDuration = randomRange(1.5, 3.2);
-    fake.actionKind = chance(0.55) ? 'orbit' : 'pace';
-    fake.orbitAngle = randomRange(0, Math.PI * 2);
-    fake.orbitRadius = randomRange(FAKE_PLAYER_CONFIG.orbitRadiusMin, FAKE_PLAYER_CONFIG.orbitRadiusMax);
-    fake.orbitDir = chance(0.5) ? 1 : -1;
-    fake.orbitSpeed = randomRange(1.8, 2.6);
+    fake.actionDuration = randomRange(FAKE_PLAYER_CONFIG.conveyorActionMin, FAKE_PLAYER_CONFIG.conveyorActionMax);
+    fake.actionKind = chance(0.55) ? 'pause' : 'pace';
+    fake.orbitRadius = randomRange(28, 48);
     fake.paceAxis = chance(0.5) ? 1 : -1;
   }
 
-  function updateFakeCircleInterest(fake, dt) {
-    if (Math.hypot(fake.x - fake.targetX, fake.y - fake.targetY) > FAKE_PLAYER_CONFIG.arriveDistance + 6) {
-      moveFakeToward(fake, fake.targetX, fake.targetY, dt, FAKE_PLAYER_CONFIG.arriveDistance);
-      return;
+  function updateFakeConveyorAction(fake, dt) {
+    fake.actionElapsed += dt;
+    updateFakeLocalAction(fake, dt, fake.interestX, fake.interestY);
+    if (fake.actionElapsed >= fake.actionDuration) {
+      if (fake.postConveyorNext === 'slot') {
+        startSlotTour(fake, 1);
+      } else {
+        startFakeWander(fake);
+      }
     }
+  }
+
+  function startFakeCollectMoney(fake) {
+    const point = getRandomCollectInterestPoint();
+    fake.state = 'moveCollect';
+    fake.stateTime = 0;
+    fake.interestX = point.interestX;
+    fake.interestY = point.interestY;
+    fake.targetX = point.x;
+    fake.targetY = point.y;
+    setFakePath(fake, buildFakeRoute(fake, point));
+  }
+
+  function updateFakeMoveToCollect(fake, dt) {
+    const arrived = moveFakeAlongPath(fake, dt, FAKE_PLAYER_CONFIG.interestArriveDistance);
+    if (arrived || fake.stateTime >= 8) startFakeCollectAction(fake);
+  }
+
+  function startFakeCollectAction(fake) {
+    fake.state = 'collectAction';
+    fake.stateTime = 0;
+    fake.actionElapsed = 0;
+    fake.actionDuration = randomRange(FAKE_PLAYER_CONFIG.collectActionMin, FAKE_PLAYER_CONFIG.collectActionMax);
+    fake.actionKind = chance(0.62) ? 'pause' : 'pace';
+    fake.orbitRadius = randomRange(24, 42);
+    fake.paceAxis = chance(0.5) ? 1 : -1;
+  }
+
+  function updateFakeCollectAction(fake, dt) {
     fake.actionElapsed += dt;
     updateFakeLocalAction(fake, dt, fake.interestX, fake.interestY);
     if (fake.actionElapsed >= fake.actionDuration) {
@@ -800,14 +893,25 @@
     const point = getRandomWalkPoint();
     fake.state = 'wander';
     fake.stateTime = 0;
+    fake.wanderStepsLeft = randomInt(FAKE_PLAYER_CONFIG.wanderStepsMin, FAKE_PLAYER_CONFIG.wanderStepsMax);
     fake.targetX = point.x;
     fake.targetY = point.y;
+    setFakePath(fake, buildFakeRoute(fake, point));
   }
 
   function updateFakeWander(fake, dt) {
-    const arrived = moveFakeToward(fake, fake.targetX, fake.targetY, dt, FAKE_PLAYER_CONFIG.arriveDistance);
+    const arrived = moveFakeAlongPath(fake, dt, FAKE_PLAYER_CONFIG.arriveDistance);
     if (arrived || fake.stateTime >= 7) {
-      startFakePause(fake, randomRange(FAKE_PLAYER_CONFIG.wanderPauseMin, FAKE_PLAYER_CONFIG.wanderPauseMax));
+      fake.wanderStepsLeft -= 1;
+      if (fake.wanderStepsLeft > 0) {
+        const point = getRandomWalkPoint();
+        fake.stateTime = 0;
+        fake.targetX = point.x;
+        fake.targetY = point.y;
+        setFakePath(fake, buildFakeRoute(fake, point));
+      } else {
+        startFakePause(fake, randomRange(FAKE_PLAYER_CONFIG.wanderPauseMin, FAKE_PLAYER_CONFIG.wanderPauseMax));
+      }
     }
   }
 
@@ -818,6 +922,7 @@
     fake.actionElapsed = 0;
     fake.isMoving = false;
     fake.walkTime = 0;
+    fake.path = [];
   }
 
   function updateFakePause(fake, dt) {
@@ -846,28 +951,60 @@
       targetY = centerY + Math.sin(fake.orbitAngle) * fake.orbitRadius * 0.62;
     } else if (fake.actionKind === 'pace') {
       const t = fake.actionDuration > 0 ? fake.actionElapsed / fake.actionDuration : 0;
-      const wave = Math.sin(t * Math.PI * 3);
+      const wave = Math.sin(t * Math.PI * 2.25);
       targetX = centerX + wave * fake.orbitRadius * fake.paceAxis;
-      targetY = centerY + Math.cos(t * Math.PI * 2) * 18;
+      targetY = centerY + Math.cos(t * Math.PI * 1.5) * 14;
     } else {
       fake.localTargetTimer -= dt;
       if (fake.localTargetTimer <= 0) {
-        fake.localTargetTimer = randomRange(0.22, 0.48);
-        fake.targetX = centerX + randomRange(-fake.orbitRadius, fake.orbitRadius);
-        fake.targetY = centerY + randomRange(-fake.orbitRadius * 0.55, fake.orbitRadius * 0.55);
+        fake.localTargetTimer = randomRange(0.65, 1.15);
+        const p = findNearbyValidPoint(centerX, centerY, Math.max(18, fake.orbitRadius * 0.35), fake.orbitRadius);
+        fake.localX = p.x;
+        fake.localY = p.y;
       }
-      targetX = fake.targetX;
-      targetY = fake.targetY;
+      targetX = fake.localX || centerX;
+      targetY = fake.localY || centerY;
     }
 
-    moveFakeToward(fake, targetX, targetY, dt, 6);
+    if (!isActorPositionValid(targetX, targetY, fake.r)) {
+      const fallback = findNearbyValidPoint(centerX, centerY, 24, Math.max(42, fake.orbitRadius));
+      targetX = fallback.x;
+      targetY = fallback.y;
+    }
+    moveFakeToward(fake, targetX, targetY, dt, FAKE_PLAYER_CONFIG.localArriveDistance);
+  }
+
+  function setFakePath(fake, points) {
+    fake.path = (Array.isArray(points) ? points : [])
+      .filter((p) => p && Number.isFinite(p.x) && Number.isFinite(p.y))
+      .map((p) => ({ x: p.x, y: p.y }));
+    if (!fake.path.length) fake.path = [{ x: fake.targetX, y: fake.targetY }];
+  }
+
+  function moveFakeAlongPath(fake, dt, arriveDistance) {
+    if (!fake.path || !fake.path.length) return true;
+    const target = fake.path[0];
+    const arrived = moveFakeToward(fake, target.x, target.y, dt, arriveDistance);
+    if (arrived) fake.path.shift();
+    return !fake.path.length;
+  }
+
+  function buildFakeRoute(fake, finalPoint) {
+    const final = { x: finalPoint.x, y: finalPoint.y };
+    const points = [];
+    const corridor = getEntrancePoint(10);
+    const goingAcrossRightWall = final.x > layout.room.x + layout.room.w + 80 || fake.x > layout.room.x + layout.room.w + 80;
+    if (goingAcrossRightWall) points.push(corridor);
+    points.push(final);
+    return points;
   }
 
   function moveFakeToward(fake, targetX, targetY, dt, arriveDistance) {
+    const safeArriveDistance = Math.max(4, Number(arriveDistance) || FAKE_PLAYER_CONFIG.arriveDistance);
     const dx = targetX - fake.x;
     const dy = targetY - fake.y;
     const dist = Math.hypot(dx, dy);
-    if (dist <= arriveDistance) {
+    if (dist <= safeArriveDistance) {
       fake.isMoving = false;
       fake.moveX = 0;
       fake.moveY = 0;
@@ -876,13 +1013,25 @@
     const nx = dx / Math.max(0.0001, dist);
     const ny = dy / Math.max(0.0001, dist);
     const speed = cfg.playerSpeed * dt;
+    const step = Math.min(speed, Math.max(0, dist - safeArriveDistance * 0.55));
+    if (step <= 0.01) {
+      fake.isMoving = false;
+      fake.moveX = 0;
+      fake.moveY = 0;
+      return true;
+    }
     fake.isMoving = true;
     fake.moveX = nx;
     fake.moveY = ny;
     fake.walkTime += dt * PLAYER_WALK_SPEED;
-    tryMoveFake(fake, nx * speed, 0);
-    tryMoveFake(fake, 0, ny * speed);
-    return Math.hypot(targetX - fake.x, targetY - fake.y) <= arriveDistance;
+    const beforeX = fake.x;
+    const beforeY = fake.y;
+    tryMoveFake(fake, nx * step, 0);
+    tryMoveFake(fake, 0, ny * step);
+    if (Math.hypot(fake.x - beforeX, fake.y - beforeY) < 0.05 && dist <= safeArriveDistance + 20) {
+      return true;
+    }
+    return Math.hypot(targetX - fake.x, targetY - fake.y) <= safeArriveDistance;
   }
 
   function tryMoveFake(fake, dx, dy) {
@@ -900,7 +1049,7 @@
     const entrance = layout && layout.entrance ? layout.entrance : FIGMA.roomCorridor;
     const base = { x: entrance.x + entrance.w / 2, y: entrance.y + entrance.h / 2 };
     const spread = Math.max(0, Number(jitter) || 0);
-    for (let i = 0; i < 8; i += 1) {
+    for (let i = 0; i < 12; i += 1) {
       const p = {
         x: base.x + randomRange(-spread, spread),
         y: base.y + randomRange(-spread, spread)
@@ -908,6 +1057,43 @@
       if (isActorPositionValid(p.x, p.y, game.player.r)) return p;
     }
     return base;
+  }
+
+  function getFakeSpawnAreas() {
+    const floor = layout && layout.floor ? layout.floor : FIGMA.shopFloor;
+    const entrance = layout && layout.entrance ? layout.entrance : FIGMA.roomCorridor;
+    return [
+      { id: 'entrance', x: entrance.x + 10, y: entrance.y + 34, w: Math.max(24, entrance.w - 20), h: Math.max(24, entrance.h - 68) },
+      { id: 'left', x: floor.x + 70, y: floor.y + 180, w: 180, h: Math.max(80, floor.h - 360) },
+      { id: 'top', x: floor.x + 330, y: floor.y + 70, w: Math.max(180, floor.w - 660), h: 150 },
+      { id: 'bottom', x: floor.x + 330, y: floor.y + floor.h - 220, w: Math.max(180, floor.w - 660), h: 150 }
+    ];
+  }
+
+  function getRandomFakeSpawnPoint() {
+    const areas = getFakeSpawnAreas();
+    const area = areas[randomInt(0, areas.length - 1)] || areas[0];
+    const point = getRandomPointInArea(area, FAKE_PLAYER_CONFIG.spawnAreaJitter) || getEntrancePoint(FAKE_PLAYER_CONFIG.spawnAreaJitter);
+    return { area, point };
+  }
+
+  function getFakeExitPoint(fake) {
+    const area = fake && fake.spawnArea ? fake.spawnArea : getFakeSpawnAreas()[0];
+    return getRandomPointInArea(area, FAKE_PLAYER_CONFIG.spawnAreaJitter) || getEntrancePoint(FAKE_PLAYER_CONFIG.spawnAreaJitter);
+  }
+
+  function getRandomPointInArea(area, edgePadding) {
+    const wantedPad = Math.max(0, Number(edgePadding) || 0);
+    const pad = Math.min(wantedPad, Math.max(0, area.w * 0.45), Math.max(0, area.h * 0.45));
+    for (let i = 0; i < 24; i += 1) {
+      const p = {
+        x: randomRange(area.x + pad, area.x + area.w - pad),
+        y: randomRange(area.y + pad, area.y + area.h - pad)
+      };
+      if (isActorPositionValid(p.x, p.y, game.player.r)) return p;
+    }
+    const center = { x: area.x + area.w / 2, y: area.y + area.h / 2 };
+    return isActorPositionValid(center.x, center.y, game.player.r) ? center : null;
   }
 
   function getRandomSlotInterestPoint(previousIndex) {
@@ -919,27 +1105,47 @@
     const slot = layout.slots[index];
     const interestX = slot.cx;
     const interestY = slot.cy;
-    const point = findNearbyValidPoint(interestX, interestY, 52, 92);
+    const point = findNearbyValidPoint(interestX, interestY, 78, 132);
     return { index, x: point.x, y: point.y, interestX, interestY };
   }
 
+  function getRandomConveyorInterestPoint() {
+    const conv = layout && layout.conveyor ? layout.conveyor : FIGMA.conveyor;
+    const anchors = layout && layout.conveyorSlots && layout.conveyorSlots.length ? layout.conveyorSlots : FIGMA.conveyorItems;
+    const anchor = anchors[randomInt(0, anchors.length - 1)] || { x: conv.x, y: conv.y, w: conv.w, h: conv.h, cx: conv.x + conv.w / 2, cy: conv.y + conv.h / 2 };
+    const interestX = (anchor.cx || (anchor.x + anchor.w / 2));
+    const interestY = randomRange(Math.max(conv.y + 80, anchor.y || conv.y), Math.min(conv.y + conv.h - 80, (anchor.y || conv.y) + (anchor.h || 240)));
+    const standX = conv.x + randomRange(34, Math.max(48, conv.w - 34));
+    const point = findNearbyValidPoint(standX, interestY, 20, 72);
+    return { index: -1, x: point.x, y: point.y, interestX, interestY };
+  }
+
+  function getRandomCollectInterestPoint() {
+    if (layout && layout.collection && chance(0.45)) {
+      const area = layout.collection;
+      const point = getRandomPointInArea({ id: 'collection', x: area.x + 18, y: area.y + 24, w: area.w - 36, h: area.h - 48 }, 18);
+      if (point) return { index: -1, x: point.x, y: point.y, interestX: area.x + area.w / 2, interestY: area.y + area.h / 2 };
+    }
+    return getRandomSlotInterestPoint(-1);
+  }
+
   function findNearbyValidPoint(cx, cy, minRadius, maxRadius) {
-    for (let i = 0; i < 16; i += 1) {
+    for (let i = 0; i < 28; i += 1) {
       const angle = randomRange(0, Math.PI * 2);
       const radius = randomRange(minRadius, maxRadius);
       const p = { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius * 0.65 };
       if (isActorPositionValid(p.x, p.y, game.player.r)) return p;
     }
-    return { x: cx, y: cy };
+    return isActorPositionValid(cx, cy, game.player.r) ? { x: cx, y: cy } : getRandomWalkPoint();
   }
 
   function getRandomWalkPoint() {
-    const zones = [layout.floor, layout.roomCorridor, layout.home].filter(Boolean);
-    for (let i = 0; i < 24; i += 1) {
+    const zones = [layout.floor, layout.roomCorridor, layout.collection, layout.conveyor].filter(Boolean);
+    for (let i = 0; i < 32; i += 1) {
       const zone = zones[randomInt(0, zones.length - 1)];
       const p = {
-        x: randomRange(zone.x + 42, zone.x + zone.w - 42),
-        y: randomRange(zone.y + 42, zone.y + zone.h - 42)
+        x: randomRange(zone.x + 48, zone.x + zone.w - 48),
+        y: randomRange(zone.y + 48, zone.y + zone.h - 48)
       };
       if (isActorPositionValid(p.x, p.y, game.player.r)) return p;
     }
@@ -1659,6 +1865,7 @@
     game.fakePlayers = [];
     game.fakePlayerNextId = 1;
     game.fakePlayerSpawnTimer = 0;
+    game.fakePlayerNextSpawnIn = 0;
     game.fakePlayersInitialized = false;
     game.conveyorItems = [];
     initConveyor();
