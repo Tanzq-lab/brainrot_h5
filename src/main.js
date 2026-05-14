@@ -30,16 +30,16 @@
     collection: { x: 1871, y: 648, w: 256, h: 512 },
     conveyor: { x: 2644, y: 1, w: 256, h: 1756 },
     slots: [
-      { x: 372, y: 585, w: 143, h: 163, itemX: 352, itemY: 455 },
-      { x: 635, y: 585, w: 143, h: 163, itemX: 618, itemY: 455 },
-      { x: 902, y: 585, w: 143, h: 163, itemX: 884, itemY: 455 },
-      { x: 1168, y: 585, w: 143, h: 163, itemX: 1150, itemY: 461 },
-      { x: 1431, y: 585, w: 143, h: 163, itemX: 1416, itemY: 461 },
-      { x: 367, y: 1174, w: 143, h: 163, itemX: 350, itemY: 1051 },
-      { x: 640, y: 1174, w: 143, h: 163, itemX: 623, itemY: 1051 },
-      { x: 897, y: 1174, w: 143, h: 163, itemX: 879, itemY: 1051 },
-      { x: 1150, y: 1174, w: 143, h: 163, itemX: 1135, itemY: 1051 },
-      { x: 1425, y: 1174, w: 143, h: 163, itemX: 1408, itemY: 1051 }
+      { x: 372, y: 555, w: 143, h: 163, itemX: 352, itemY: 425 },
+      { x: 635, y: 555, w: 143, h: 163, itemX: 618, itemY: 425 },
+      { x: 902, y: 555, w: 143, h: 163, itemX: 884, itemY: 425 },
+      { x: 1168, y: 555, w: 143, h: 163, itemX: 1150, itemY: 431 },
+      { x: 1431, y: 555, w: 143, h: 163, itemX: 1416, itemY: 431 },
+      { x: 367, y: 1144, w: 143, h: 163, itemX: 350, itemY: 1021 },
+      { x: 640, y: 1144, w: 143, h: 163, itemX: 623, itemY: 1021 },
+      { x: 897, y: 1144, w: 143, h: 163, itemX: 879, itemY: 1021 },
+      { x: 1150, y: 1144, w: 143, h: 163, itemX: 1135, itemY: 1021 },
+      { x: 1425, y: 1144, w: 143, h: 163, itemX: 1408, itemY: 1021 }
     ],
     conveyorItems: [
       { x: 2674, y: 12, w: 170, h: 279 },
@@ -636,7 +636,7 @@
     const id = game.fakePlayerNextId++;
     const fake = {
       id,
-      name: 'Noob' + id,
+      name: '玩家' + id,
       x: spawn.point.x,
       y: spawn.point.y,
       r: game.player.r,
@@ -1389,7 +1389,7 @@
     actors.sort((a, b) => a.y - b.y);
     for (const actor of actors) {
       if (actor.type === 'player') {
-        drawNoobCharacter(actor.ref, 'Noob', true);
+        drawNoobCharacter(actor.ref, '玩家', true);
       } else {
         drawNoobCharacter(actor.ref, actor.ref.name, false);
       }
@@ -1397,7 +1397,7 @@
   }
 
   function drawPlayer() {
-    drawNoobCharacter(game.player, 'Noob', true);
+    drawNoobCharacter(game.player, '玩家', true);
   }
 
   function drawNoobCharacter(p, name, showHalo) {
@@ -1457,7 +1457,7 @@
     drawSpriteRect(bodyImg, bodyX, bodyY, bodyW, bodyH, '#218cff');
     drawSpriteRect(headImg, headX, headY, headW, headH, '#ffeb25');
 
-    drawText(name || 'Noob', p.x, headY - 12, 22, '#ffe85f', 'center', '900', true);
+    drawText(name || '玩家', p.x, headY - 12, 22, '#ffe85f', 'center', '900', true);
   }
 
   function getSpriteWidth(img, fallback) {
@@ -1842,8 +1842,6 @@
     const slot = game.slots[index];
     if (!slot || !slot.templateId) return;
     selectedDeleteSlot = index;
-    const template = getTemplate(slot.templateId);
-    modalNameEl.textContent = `确定删除「${template.name}」吗？删除后不返还购买金币。`;
     modalEl.classList.remove('hidden');
   }
 
@@ -1862,7 +1860,6 @@
       slot.reserved = false;
       slot.collectCooldown = 0;
       addFloatText('已删除 ' + template.name, rect.cx, rect.cy - 18, '#ff4165');
-      showToast('已删除，不返还金币');
       saveNow();
     }
     closeDeleteModal();
