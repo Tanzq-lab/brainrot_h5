@@ -82,6 +82,8 @@
     spawnIntervalMax: 75,
     lifeSecondsMin: 150,
     lifeSecondsMax: 240,
+    spawnPauseMin: 2,
+    spawnPauseMax: 5,
     exitTimeout: 12,
     maxCount: 4,
     arriveDistance: 34,
@@ -644,7 +646,7 @@
       moveY: 0,
       age: 0,
       lifeSeconds: randomRange(FAKE_PLAYER_CONFIG.lifeSecondsMin, FAKE_PLAYER_CONFIG.lifeSecondsMax),
-      state: 'choose',
+      state: 'spawnPause',
       stateTime: 0,
       targetX: spawn.point.x,
       targetY: spawn.point.y,
@@ -659,7 +661,7 @@
       interestX: spawn.point.x,
       interestY: spawn.point.y,
       actionKind: 'pause',
-      actionDuration: 0,
+      actionDuration: randomRange(FAKE_PLAYER_CONFIG.spawnPauseMin, FAKE_PLAYER_CONFIG.spawnPauseMax),
       actionElapsed: 0,
       orbitAngle: randomRange(0, Math.PI * 2),
       orbitRadius: randomRange(FAKE_PLAYER_CONFIG.orbitRadiusMin, FAKE_PLAYER_CONFIG.orbitRadiusMax),
@@ -671,7 +673,6 @@
       postConveyorNext: null
     };
     game.fakePlayers.push(fake);
-    chooseFakeBehavior(fake);
   }
 
   function updateFakePlayer(fake, dt) {
@@ -683,6 +684,9 @@
     }
 
     switch (fake.state) {
+      case 'spawnPause':
+        updateFakeSpawnPause(fake, dt);
+        break;
       case 'moveSlot':
         updateFakeMoveToSlot(fake, dt);
         break;
@@ -714,6 +718,19 @@
       default:
         chooseFakeBehavior(fake);
         break;
+    }
+  }
+
+
+  function updateFakeSpawnPause(fake, dt) {
+    fake.actionElapsed += dt;
+    fake.isMoving = false;
+    fake.walkTime = 0;
+    fake.path = [];
+    if (fake.actionElapsed >= fake.actionDuration) {
+      fake.state = 'choose';
+      fake.stateTime = 0;
+      fake.actionElapsed = 0;
     }
   }
 
