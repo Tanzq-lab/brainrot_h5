@@ -24,6 +24,10 @@ html.booting #boot-overlay {
 
 #game-shell {
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   overflow: hidden;
   background: radial-gradient(circle at 35% 45%, #392276 0%, #150a2d 52%, #07030d 100%);
@@ -31,6 +35,10 @@ html.booting #boot-overlay {
 
 #game {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   width: 100%;
   height: 100%;
@@ -39,6 +47,10 @@ html.booting #boot-overlay {
 
 #boot-overlay {
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   z-index: 90;
   display: flex;
@@ -60,6 +72,10 @@ html.booting #boot-overlay {
 
 .boot-splash {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   background-position: center;
   background-repeat: no-repeat;
@@ -77,6 +93,8 @@ html.booting #boot-overlay {
 
 .boot-age-rating {
   position: absolute;
+  top: 24px;
+  right: 24px;
   top: calc(24px + env(safe-area-inset-top));
   right: calc(24px + env(safe-area-inset-right));
   max-height: 60px;
@@ -87,7 +105,10 @@ html.booting #boot-overlay {
 .boot-bottom {
   position: relative;
   z-index: 2;
+  width: 100%;
+  max-width: 840px;
   width: min(100%, 840px);
+  padding: 28px 24px 24px;
   padding: 28px 24px calc(24px + env(safe-area-inset-bottom));
   background:
     linear-gradient(180deg, rgba(6, 6, 10, 0) 0%, rgba(6, 6, 10, 0.48) 16%, rgba(6, 6, 10, 0.88) 48%, rgba(6, 6, 10, 0.96) 100%);
@@ -97,6 +118,7 @@ html.booting #boot-overlay {
 .boot-notice-title {
   margin-bottom: 14px;
   color: #ffdd00;
+  font-size: 26px;
   font-size: clamp(24px, 3vw, 28px);
   font-weight: 900;
   line-height: 1.2;
@@ -109,6 +131,7 @@ html.booting #boot-overlay {
 
 .boot-notice-text {
   color: #fff;
+  font-size: 15px;
   font-size: clamp(15px, 1.8vw, 16px);
   line-height: 1.5;
   text-shadow:
@@ -123,6 +146,8 @@ html.booting #boot-overlay {
 }
 
 .boot-progress {
+  width: 320px;
+  max-width: 72vw;
   width: min(72vw, 320px);
   height: 8px;
   margin: 18px auto 8px;
@@ -148,6 +173,7 @@ html.booting #boot-overlay {
 
 #toast {
   position: fixed;
+  top: 16px;
   top: max(16px, env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
@@ -173,6 +199,10 @@ html.booting #boot-overlay {
 
 #confirm-modal {
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   display: flex;
   align-items: center;
@@ -187,6 +217,8 @@ html.booting #boot-overlay {
 }
 
 .modal-card {
+  width: 420px;
+  max-width: 76vw;
   width: min(420px, 76vw);
   padding: 22px;
   border: 3px solid #ffe96a;
@@ -241,6 +273,10 @@ html.booting #boot-overlay {
 #rotate-tip {
   display: none;
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   z-index: 40;
   align-items: center;

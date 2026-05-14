@@ -54,6 +54,22 @@
     };
   }
 
+  function getSafeStorage() {
+    try {
+      if (!window.localStorage) return null;
+      const testKey = '__brainrot_storage_test__';
+      window.localStorage.setItem(testKey, '1');
+      window.localStorage.removeItem(testKey);
+      return window.localStorage;
+    } catch (err) {
+      console.warn('[BrainrotSave] localStorage 不可用，使用本次会话内存存档', err);
+      return null;
+    }
+  }
+
+  const safeStorage = getSafeStorage();
+  let memoryState = null;
+
   function normalizeState(raw) {
     const fallback = createDefaultState();
     if (!raw || typeof raw !== 'object') return fallback;
@@ -85,18 +101,35 @@
   }
 
   function loadState() {
+    if (!safeStorage) {
+      memoryState = memoryState ? normalizeState(memoryState) : createDefaultState();
+      return memoryState;
+    }
     try {
-      const text = localStorage.getItem(cfg.storageKey);
+      const text = safeStorage.getItem(cfg.storageKey);
       if (!text) return createDefaultState();
       return normalizeState(JSON.parse(text));
     } catch (err) {
       console.warn('[BrainrotSave] 存档读取失败，已重置', err);
-      localStorage.removeItem(cfg.storageKey);
+      try { safeStorage.removeItem(cfg.storageKey); } catch (removeErr) { /* 忽略清理失败 */ }
       return createDefaultState();
     }
   }
 
   function saveState(state) {
+    if (!safeStorage) {
+      memoryState = normalizeState({
+        layoutVersion: state.layoutVersion || null,
+        coins: state.coins,
+        player: { x: state.player.x, y: state.player.y },
+        slots: state.slots,
+        conveyor: {
+          nextTemplateIndex: state.conveyorNextTemplateIndex,
+          items: state.conveyorItems
+        }
+      });
+      return;
+    }
     try {
       const payload = {
         version: 1,
@@ -119,15 +152,18 @@
         },
         savedAt: Date.now()
       };
-      localStorage.setItem(cfg.storageKey, JSON.stringify(payload));
+      safeStorage.setItem(cfg.storageKey, JSON.stringify(payload));
     } catch (err) {
       console.warn('[BrainrotSave] 存档写入失败', err);
     }
   }
 
   function resetState() {
-    localStorage.removeItem(cfg.storageKey);
-    return createDefaultState();
+    if (safeStorage) {
+      try { safeStorage.removeItem(cfg.storageKey); } catch (err) { console.warn('[BrainrotSave] 清档失败', err); }
+    }
+    memoryState = createDefaultState();
+    return memoryState;
   }
 
   window.BrainrotStorage = {

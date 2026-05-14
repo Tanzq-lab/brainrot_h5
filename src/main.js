@@ -15,7 +15,10 @@
   const bootProgressFillEl = document.getElementById('boot-progress-fill');
   const bootProgressLabelEl = document.getElementById('boot-progress-label');
 
-  const DPR_LIMIT = 2;
+  const DPR_LIMIT = getCanvasDprLimit();
+  const BOOT_IMAGE_TIMEOUT = 3500;
+  const BOOT_TOTAL_TIMEOUT = 6000;
+  const RESIZE_DEBOUNCE_MS = 80;
   const keyState = new Set();
   const CAMERA_LERP = 9.5;
   const WORLD_CAMERA_ZOOM = 0.5;
@@ -148,7 +151,13 @@
   let layout = null;
   let selectedDeleteSlot = null;
   let toastTimer = 0;
-  let lastFrameTime = performance.now();
+  let lastFrameTime = nowMs();
+  let booted = false;
+  let resizeTimer = 0;
+  let lastCanvasWidth = 0;
+  let lastCanvasHeight = 0;
+  let lastCanvasDpr = 0;
+  const optionalBootImages = [];
   let autosaveTimer = 0;
   let debugVisible = false;
   let didValidateSpawn = false;
@@ -199,12 +208,41 @@
     PLAYER_ASSET_PATHS.head,
     PLAYER_ASSET_PATHS.body,
     PLAYER_ASSET_PATHS.arm,
-    PLAYER_ASSET_PATHS.leg,
-    ...cfg.brainrots.map((brainrot) => brainrot && brainrot.imageSrc).filter(Boolean)
+    PLAYER_ASSET_PATHS.leg
   ];
 
   function delay(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  function nowMs() {
+    return window.performance && typeof window.performance.now === 'function'
+      ? window.performance.now()
+      : Date.now();
+  }
+
+  function requestNextFrame(callback) {
+    const raf = window.requestAnimationFrame || function (cb) {
+      return window.setTimeout(function () { cb(nowMs()); }, 16);
+    };
+    return raf.call(window, callback);
+  }
+
+  function getCanvasDprLimit() {
+    const ua = navigator.userAgent || '';
+    const androidMatch = ua.match(/Android\s+(\d+)/i);
+    const androidMajor = androidMatch ? Number(androidMatch[1]) : 0;
+    const isOldAndroid = androidMajor > 0 && androidMajor <= 8;
+    const memory = Number(navigator.deviceMemory) || 0;
+    const cores = Number(navigator.hardwareConcurrency) || 0;
+    const isWeakDevice = (memory > 0 && memory <= 2) || (cores > 0 && cores <= 4);
+    return isOldAndroid || isWeakDevice ? 1.35 : 2;
+  }
+
+  function bootLog(step, data) {
+    window.__brainrotBootLog = window.__brainrotBootLog || [];
+    window.__brainrotBootLog.push({ step, at: Date.now(), data: data || null });
+    if (window.__brainrotBootDebug) console.log('[BrainrotBoot]', step, data || '');
   }
 
   function setBootProgress(value) {
@@ -225,22 +263,45 @@
     }, 300);
   }
 
-  function preloadBootImage(src) {
+  function preloadBootImage(src, timeoutMs) {
     return new Promise((resolve) => {
       const img = new Image();
       let settled = false;
-      const done = () => {
+      const timer = window.setTimeout(() => {
+        console.warn('[BootOverlay] image timeout:', src);
+        done('timeout');
+      }, timeoutMs || BOOT_IMAGE_TIMEOUT);
+      const done = (status) => {
         if (settled) return;
         settled = true;
-        resolve();
+        window.clearTimeout(timer);
+        resolve(status || 'ok');
       };
-      img.onload = done;
+      img.onload = () => done('ok');
       img.onerror = () => {
         console.warn('[BootOverlay] image failed:', src);
-        done();
+        done('error');
       };
       img.src = src;
-      if (img.complete) done();
+      if (img.complete) done('cached');
+    });
+  }
+
+  function preloadBootImageWithProgress(src, onDone) {
+    return preloadBootImage(src, BOOT_IMAGE_TIMEOUT).then((status) => {
+      onDone(src, status);
+      return status;
+    });
+  }
+
+  function prewarmNonBlockingImages(paths) {
+    Array.from(new Set(paths || [])).forEach((src) => {
+      if (!src) return;
+      const img = new Image();
+      img.onload = function () { img.ready = true; };
+      img.onerror = function () { console.warn('[BootOverlay] optional image failed:', src); };
+      img.src = src;
+      optionalBootImages.push(img);
     });
   }
 
@@ -249,12 +310,25 @@
     const imagePaths = Array.from(new Set(BOOT_IMAGE_PATHS));
     let loadedCount = 0;
     setBootProgress(0);
+    bootLog('boot_preload_start', { count: imagePaths.length, dprLimit: DPR_LIMIT });
 
-    await Promise.all(imagePaths.map(async (src) => {
-      await preloadBootImage(src);
+    prewarmNonBlockingImages((cfg.brainrots || []).map((brainrot) => brainrot && brainrot.imageSrc).filter(Boolean));
+
+    const preloadAll = Promise.all(imagePaths.map(async (src) => {
+      await preloadBootImageWithProgress(src, (path, status) => {
+        if (status === 'timeout') bootLog('boot_image_timeout', { src: path });
+        if (status === 'error') bootLog('boot_image_error', { src: path });
+      });
       loadedCount += 1;
       setBootProgress(loadedCount / imagePaths.length);
     }));
+
+    await Promise.race([
+      preloadAll,
+      delay(BOOT_TOTAL_TIMEOUT).then(() => {
+        bootLog('boot_preload_total_timeout', { loadedCount, count: imagePaths.length });
+      })
+    ]);
 
     const elapsed = Date.now() - startedAt;
     const minVisibleTime = Math.max(BOOT_SPLASH_DURATION, MIN_NOTICE_TIME);
@@ -336,16 +410,46 @@
     return Math.max(0, Number(slot && slot.collectCooldown) || 0);
   }
 
+  function getViewportSize() {
+    const doc = document.documentElement || document.body;
+    return {
+      w: Math.max(1, window.innerWidth || (doc && doc.clientWidth) || canvas.clientWidth || 1),
+      h: Math.max(1, window.innerHeight || (doc && doc.clientHeight) || canvas.clientHeight || 1)
+    };
+  }
+
   function resize() {
+    const viewport = getViewportSize();
     const dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
-    const w = Math.max(1, window.innerWidth);
-    const h = Math.max(1, window.innerHeight);
-    canvas.width = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
-    canvas.style.width = w + 'px';
-    canvas.style.height = h + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = viewport.w;
+    const h = viewport.h;
+    const pixelW = Math.max(1, Math.floor(w * dpr));
+    const pixelH = Math.max(1, Math.floor(h * dpr));
+
+    if (pixelW !== lastCanvasWidth || pixelH !== lastCanvasHeight || dpr !== lastCanvasDpr) {
+      canvas.width = pixelW;
+      canvas.height = pixelH;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      lastCanvasWidth = pixelW;
+      lastCanvasHeight = pixelH;
+      lastCanvasDpr = dpr;
+    }
+
+    if (ctx.setTransform) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    } else {
+      ctx.scale(dpr, dpr);
+    }
     computeLayout(w, h);
+  }
+
+  function scheduleResize() {
+    if (resizeTimer) window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => {
+      resizeTimer = 0;
+      resize();
+    }, RESIZE_DEBOUNCE_MS);
   }
 
   function computeLayout(w, h) {
@@ -1265,7 +1369,7 @@
         item.yRatio = minY - 0.18;
         item.empty = false;
         item.templateId = takeNextTemplateId();
-        item.id = 'cv_' + performance.now() + '_' + Math.random().toString(16).slice(2);
+        item.id = 'cv_' + nowMs() + '_' + Math.random().toString(16).slice(2);
       }
       positionConveyorItem(item);
     }
@@ -1836,6 +1940,14 @@
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
+  function preventInputDefault(e) {
+    if (e && e.preventDefault && e.cancelable !== false) e.preventDefault();
+  }
+
+  function getInputId(e) {
+    return e && e.pointerId != null ? e.pointerId : 'touch';
+  }
+
   function screenToWorld(x, y) {
     const zoom = layout && layout.worldScale ? layout.worldScale : 1;
     return { x: x / zoom + game.camera.x, y: y / zoom + game.camera.y };
@@ -1843,16 +1955,19 @@
 
   function onPointerDown(e) {
     if (!layout || !modalEl.classList.contains('hidden')) return;
+    preventInputDefault(e);
     const p = pointerToCanvas(e);
     const js = layout.joystick;
     const isJoystickZone = p.x < layout.w * 0.30 && p.y > layout.h * 0.48;
     if (isJoystickZone) {
       game.joystick.active = true;
-      game.joystick.pointerId = e.pointerId;
+      game.joystick.pointerId = getInputId(e);
       game.joystick.baseX = js.x;
       game.joystick.baseY = js.y;
       updateJoystick(p.x, p.y);
-      canvas.setPointerCapture(e.pointerId);
+      if (canvas.setPointerCapture && e.pointerId != null) {
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 老 WebView 兜底：忽略捕获失败 */ }
+      }
       return;
     }
 
@@ -1868,19 +1983,56 @@
   }
 
   function onPointerMove(e) {
-    if (!game.joystick.active || game.joystick.pointerId !== e.pointerId) return;
+    if (!game.joystick.active || game.joystick.pointerId !== getInputId(e)) return;
+    preventInputDefault(e);
     const p = pointerToCanvas(e);
     updateJoystick(p.x, p.y);
   }
 
   function onPointerUp(e) {
-    if (game.joystick.pointerId !== e.pointerId) return;
+    if (game.joystick.pointerId !== getInputId(e)) return;
+    preventInputDefault(e);
     game.joystick.active = false;
     game.joystick.pointerId = null;
     game.joystick.dx = 0;
     game.joystick.dy = 0;
     game.joystick.knobX = game.joystick.baseX;
     game.joystick.knobY = game.joystick.baseY;
+    if (canvas.releasePointerCapture && e.pointerId != null) {
+      try { canvas.releasePointerCapture(e.pointerId); } catch (err) { /* 忽略释放失败 */ }
+    }
+  }
+
+  function getPrimaryTouch(e) {
+    const touches = e.changedTouches && e.changedTouches.length ? e.changedTouches : e.touches;
+    return touches && touches.length ? touches[0] : null;
+  }
+
+  function touchToPointerEvent(e) {
+    const t = getPrimaryTouch(e);
+    if (!t) return null;
+    return {
+      clientX: t.clientX,
+      clientY: t.clientY,
+      pointerId: 'touch',
+      preventDefault: function () { if (e.preventDefault) e.preventDefault(); },
+      cancelable: e.cancelable
+    };
+  }
+
+  function onTouchStart(e) {
+    const p = touchToPointerEvent(e);
+    if (p) onPointerDown(p);
+  }
+
+  function onTouchMove(e) {
+    const p = touchToPointerEvent(e);
+    if (p) onPointerMove(p);
+  }
+
+  function onTouchEnd(e) {
+    const p = touchToPointerEvent(e) || { pointerId: 'touch', preventDefault: function () { if (e.preventDefault) e.preventDefault(); }, cancelable: e.cancelable };
+    onPointerUp(p);
   }
 
   function updateJoystick(x, y) {
@@ -1977,19 +2129,25 @@
       update(dt);
       draw();
     }
-    requestAnimationFrame(gameLoop);
+    requestNextFrame(gameLoop);
   }
 
   function setupEvents() {
-    window.addEventListener('resize', resize);
-    window.addEventListener('orientationchange', resize);
+    window.addEventListener('resize', scheduleResize);
+    window.addEventListener('orientationchange', scheduleResize);
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerup', onPointerUp);
     canvas.addEventListener('pointercancel', onPointerUp);
+    if (!window.PointerEvent) {
+      canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+      canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+      canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+      canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
+    }
 
-    deleteCancelBtn.addEventListener('click', closeDeleteModal);
-    deleteConfirmBtn.addEventListener('click', confirmDeleteSlot);
+    if (deleteCancelBtn) deleteCancelBtn.addEventListener('click', closeDeleteModal);
+    if (deleteConfirmBtn) deleteConfirmBtn.addEventListener('click', confirmDeleteSlot);
 
     window.addEventListener('keydown', (e) => {
       const key = e.key.toLowerCase();
@@ -2008,17 +2166,25 @@
   }
 
   function boot() {
+    if (booted) return;
+    booted = true;
+    bootLog('boot_game_start');
     initConveyor();
     setupEvents();
     resize();
-    lastFrameTime = performance.now();
-    requestAnimationFrame(gameLoop);
+    lastFrameTime = nowMs();
+    requestNextFrame(gameLoop);
+    requestNextFrame(() => bootLog('boot_first_frame'));
   }
 
   runBootOverlay()
+    .then(() => {
+      boot();
+    })
     .catch((err) => {
       console.warn('[BootOverlay] fallback to direct boot', err);
+      bootLog('boot_error', { message: err && err.message ? err.message : String(err) });
       finishBootOverlay();
-    })
-    .finally(boot);
+      boot();
+    });
 })();
